@@ -1,6 +1,8 @@
 # Tetorica VGM Analyzer — Tauri
 
-VGM Analyzer の release ZIP を、そのままデスクトップアプリに組み込む薄い Tauri 2 シェルです。Analyzer の JavaScript / HTML / WASM は書き換えません。
+[hello_ymfm_wasm](https://github.com/kyorohiro/hello_ymfm_wasm) で開発されている **VGM Analyzer の Tauri 版**です。VGM / VGZ の解析・再生機能をデスクトップアプリとして利用でき、ウィンドウを最前面に固定する PIN 機能を追加しています。
+
+上流の VGM Analyzer の release ZIP をそのまま組み込む Tauri 2 シェルとして構成しています。Analyzer の JavaScript / HTML / WASM は書き換えず、このリポジトリではデスクトップ向けの機能とアプリのビルド・配布を管理します。
 
 ## 起動
 
