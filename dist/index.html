@@ -1,0 +1,989 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=1200">
+    <title>Tetorica FM2612 VGM Analyzer</title>
+    <meta name="description" content="Play and inspect VGM music in your browser. Explore sound-chip activity, study FM instruments, and extract patches for further sound design.">
+    <meta property="og:title" content="Tetorica FM2612 VGM Analyzer">
+    <meta property="og:description" content="Play and inspect VGM music in your browser. Explore sound-chip activity, study FM instruments, and extract patches for further sound design.">
+    <meta property="og:type" content="website">
+    <link rel="stylesheet" href="./tfi_info.css">
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #f4efe4;
+        --panel: #fffaf0;
+        --ink: #1f1b16;
+        --accent: #b4572f;
+        --accent-dark: #7e381c;
+        --line: #d7c8ac;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        font-family: "Avenir Next", "Helvetica Neue", Helvetica, Arial, sans-serif;
+        color: var(--ink);
+        background:
+          radial-gradient(circle at top left, #fff8df 0, transparent 28%),
+          radial-gradient(circle at bottom right, #f0d8ba 0, transparent 24%),
+          linear-gradient(160deg, var(--bg), #eadfc9 60%, #e0cfb5);
+      }
+
+      main {
+        width: min(1800px, 100%);
+        margin: 0 auto;
+        padding: 48px 20px 64px;
+      }
+
+      .panel {
+        background: color-mix(in srgb, var(--panel) 90%, white 10%);
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        padding: 28px;
+        box-shadow: 0 18px 40px rgba(90, 62, 30, 0.12);
+      }
+
+      h1, h2 {
+        margin: 0 0 12px;
+        line-height: 1.1;
+        letter-spacing: -0.04em;
+      }
+
+      h1 {
+        font-size: clamp(2rem, 4vw, 3.2rem);
+      }
+
+      h2 {
+        margin-top: 28px;
+        font-size: 1.35rem;
+      }
+
+      p {
+        margin: 0 0 16px;
+        line-height: 1.6;
+      }
+
+      .actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        margin: 24px 0 18px;
+      }
+
+      .actions .action-break {
+        flex-basis: 100%;
+        height: 0;
+      }
+
+      .sub-actions {
+        display: flex;
+        gap: 12px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin: 0 0 18px;
+      }
+
+      .file-input-group {
+        display: inline-flex;
+        flex-direction: column;
+        gap: 4px;
+      }
+
+      .file-input-label {
+        font-size: 0.78rem;
+        font-weight: 700;
+        color: #5b4a33;
+      }
+
+      .file-input-group.is-optional {
+        opacity: 0.76;
+      }
+
+      .file-input-group.is-optional .file-input-label {
+        font-size: 0.72rem;
+        font-weight: 600;
+      }
+
+      .volume-control {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 0.3rem 0.75rem;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--ink);
+        font: inherit;
+        font-size: 0.82rem;
+        font-weight: 700;
+      }
+
+      .volume-control input[type="range"] {
+        width: 120px;
+      }
+
+      .volume-readout {
+        min-width: 3.4em;
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+
+      input[type="file"] {
+        font: inherit;
+      }
+
+      .link-button {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 12px 18px;
+        font-weight: 700;
+        color: white;
+        background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+        text-decoration: none;
+      }
+
+      .status {
+        min-height: 1.5em;
+        font-weight: 600;
+      }
+
+      .track-metadata {
+        display: grid;
+        grid-template-columns: minmax(100px, max-content) minmax(0, 1fr);
+        gap: 8px 20px;
+        margin: 16px 0 24px;
+        font-size: 0.92rem;
+      }
+
+      .track-metadata dt { font-weight: 700; }
+      .track-metadata dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+      @media (max-width: 600px) {
+        .track-metadata { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+        .track-metadata dd { margin-bottom: 8px; }
+      }
+
+      pre {
+        margin: 0;
+        padding: 16px 18px;
+        border-radius: 16px;
+        background: #2b241d;
+        color: #f6ead7;
+        font-family: "SFMono-Regular", Menlo, Consolas, monospace;
+        font-size: 0.92rem;
+        overflow-x: auto;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .channel-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        margin: 0 0 24px;
+      }
+
+      .channel-card {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px 16px;
+        background: rgba(255, 255, 255, 0.52);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+      }
+
+      .channel-card.is-key-on {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--line) 45%);
+        background: linear-gradient(180deg, rgba(255, 244, 225, 0.92), rgba(255, 250, 240, 0.72));
+      }
+
+      .channel-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+        margin: 0 0 10px;
+        font-weight: 700;
+      }
+
+      .channel-title {
+        font-size: 1rem;
+        letter-spacing: 0.02em;
+      }
+
+      .channel-head-left {
+        display: flex;
+        gap: 10px;
+        align-items: baseline;
+      }
+
+      .channel-toggle {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 0.24rem 0.7rem;
+        background: rgba(255, 255, 255, 0.72);
+        color: var(--ink);
+        font: inherit;
+        font-size: 0.76rem;
+        font-weight: 700;
+        cursor: pointer;
+      }
+
+      .channel-toggle.is-muted {
+        background: rgba(43, 36, 29, 0.08);
+        color: #7b5d38;
+      }
+
+      .monitor-toggles {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0 0 14px;
+      }
+
+      .channel-meta {
+        font-size: 0.82rem;
+        color: #5b4a33;
+      }
+
+      .channel-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin: 0 0 10px;
+        font-size: 0.84rem;
+      }
+
+      .channel-chip {
+        padding: 6px 8px;
+        border-radius: 999px;
+        background: rgba(43, 36, 29, 0.08);
+        white-space: nowrap;
+        transition: background-color 160ms linear, color 160ms linear;
+      }
+
+      .operators {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 6px;
+      }
+
+      .operator-box {
+        padding: 8px 10px;
+        border-radius: 12px;
+        background: rgba(43, 36, 29, 0.06);
+        font-size: 0.75rem;
+        line-height: 1.4;
+      }
+
+      .operator-box strong {
+        display: inline-block;
+        min-width: 2.4em;
+      }
+
+      .param-token {
+        display: inline-block;
+        margin: 0 0.2em 0.16em 0;
+        padding: 0.08em 0.38em;
+        border-radius: 999px;
+        background: rgba(43, 36, 29, 0.06);
+        transition: background-color 160ms linear, color 160ms linear;
+      }
+
+      @media (max-width: 1200px) {
+        .channel-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 820px) {
+        .channel-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+      .engine-badge {
+        display: inline-block;
+        margin-left: 10px;
+        padding: 2px 10px;
+        border-radius: 999px;
+        font-size: 0.7rem;
+        font-weight: 700;
+        vertical-align: middle;
+        color: white;
+        background: linear-gradient(135deg, var(--accent), var(--accent-dark));
+      }
+
+      .tabbar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 20px 0 0;
+        padding: 6px 6px 0;
+        border: 1px solid var(--line);
+        border-bottom: none;
+        border-radius: 18px 18px 0 0;
+        background: rgba(255, 255, 255, 0.34);
+      }
+
+      .tab-button {
+        min-height: 38px;
+        padding: 8px 14px;
+        border-radius: 14px 14px 0 0;
+        border: 1px solid transparent;
+        border-bottom: none;
+        background: transparent;
+        color: var(--ink);
+        font: inherit;
+        cursor: pointer;
+        font-weight: 700;
+        opacity: 0.7;
+        transition:
+          background-color 140ms ease,
+          border-color 140ms ease,
+          color 140ms ease,
+          opacity 140ms ease,
+          transform 140ms ease;
+      }
+
+      .tab-button:hover {
+        opacity: 1;
+        background: rgba(255, 255, 255, 0.55);
+      }
+
+      .tab-button:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--accent) 70%, white 30%);
+        outline-offset: 2px;
+      }
+
+      .tab-button[aria-selected="true"] {
+        opacity: 1;
+        color: var(--accent-dark);
+        border-color: var(--line);
+        background: color-mix(in srgb, var(--panel) 88%, white 12%);
+        box-shadow: 0 -1px 0 rgba(255, 255, 255, 0.75) inset;
+        transform: translateY(1px);
+      }
+
+      .tab-panel {
+        margin-top: 0;
+        padding: 18px 0 0;
+        border: 1px solid var(--line);
+        border-top: none;
+        border-radius: 0 0 18px 18px;
+      }
+
+      .tab-panel[hidden] {
+        display: none;
+      }
+
+      #noteishPanel [hidden] { display: none !important; }
+
+      .noteish-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .timeline-controls { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:12px 0; }
+      .timeline-controls input[type=number] { width:100px; }
+      .timeline-scroll { position:relative; overflow-x:auto; overflow-y:hidden; width:100%; }
+      .timeline-scroll canvas { position:sticky; left:0; display:block; cursor:crosshair; }
+      .timeline-spacer { position:absolute; height:1px; top:0; left:0; pointer-events:none; }
+      .noteish-overview {
+        margin: 0 0 18px;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px 16px;
+        background: rgba(255, 255, 255, 0.56);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+      }
+
+      .noteish-overview svg {
+        display: block;
+        width: 100%;
+        height: 210px;
+      }
+
+      .noteish-overview-caption {
+        margin: 0 0 10px;
+        font-size: 0.9rem;
+        color: #5b4a33;
+      }
+
+      .noteish-card {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 14px 16px;
+        background: rgba(255, 255, 255, 0.52);
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55);
+      }
+
+      .noteish-card.is-key-on {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--line) 45%);
+        background: linear-gradient(180deg, rgba(255, 244, 225, 0.92), rgba(255, 250, 240, 0.72));
+      }
+
+      .noteish-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+        margin: 0 0 10px;
+      }
+
+      .noteish-title {
+        font-size: 1rem;
+        font-weight: 700;
+      }
+
+      .noteish-state {
+        font-size: 0.82rem;
+        color: #5b4a33;
+      }
+
+      .noteish-row {
+        display: flex;
+        align-items: baseline;
+        gap: 10px;
+        margin: 0 0 10px;
+        flex-wrap: wrap;
+      }
+
+      .noteish-note {
+        font-size: 1.35rem;
+        font-weight: 800;
+        letter-spacing: -0.03em;
+      }
+
+      .noteish-cents {
+        font-size: 0.82rem;
+        color: #7a6547;
+      }
+
+      .noteish-meta {
+        font-size: 0.84rem;
+        line-height: 1.5;
+        color: #4f4130;
+      }
+
+      .noteish-actions {
+        margin: 10px 0 0;
+        display: flex;
+        justify-content: flex-end;
+      }
+
+      .noteish-button {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.82);
+        color: var(--accent-dark);
+        padding: 7px 12px;
+        font: inherit;
+        cursor: pointer;
+      }
+
+      .noteish-button:hover {
+        background: rgba(255, 248, 238, 0.96);
+      }
+
+      .notes-dialog {
+        width: min(720px, calc(100vw - 32px));
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        padding: 0;
+        background: color-mix(in srgb, var(--panel) 94%, white 6%);
+        color: var(--ink);
+      }
+
+      .notes-dialog::backdrop {
+        background: rgba(26, 19, 14, 0.38);
+      }
+
+      .notes-dialog-body {
+        padding: 18px;
+      }
+
+      .notes-dialog-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin: 0 0 12px;
+      }
+
+      .notes-dialog-head h3 {
+        margin: 0;
+      }
+
+      .notes-dialog-output {
+        margin: 0;
+        padding: 14px 16px;
+        border-radius: 14px;
+        border: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.7);
+        white-space: pre-wrap;
+        word-break: break-word;
+        line-height: 1.6;
+      }
+
+      .noteish-graph {
+        margin: 0 0 10px;
+      }
+
+      .noteish-graph svg {
+        display: block;
+        width: 100%;
+        height: 54px;
+      }
+
+      .noteish-help {
+        margin: 0 0 16px;
+        line-height: 1.5;
+        color: #5b4a33;
+      }
+
+      @media (max-width: 1200px) {
+        .noteish-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 820px) {
+        .noteish-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+
+    </style>
+    <link rel="stylesheet" href="./analyzer_theme.css?v=chip-support-1">
+  </head>
+  <body>
+    <p id="chipSupportNotice" role="status" hidden>YM2413 analysis and instrument editing: Support coming soon.</p>
+    <main>
+      <section class="panel">
+        <nav class="page-tools" aria-label="Page actions">
+          <a class="link-button" href="./support.html">Sound chip support — reference page</a>
+          
+          <button class="link-button" data-reset-offline-cache type="button">Reset Offline Cache</button>
+        </nav>
+        <header class="instrument-header">
+          <div class="instrument-brand">
+            <h1 id="pageTitle"><span class="brand-name">Tetorica</span><span class="brand-model"><span>FM</span>2612</span><span class="brand-analyzer">Analyzer</span></h1>
+            <p class="brand-caption">VGM Inspector &amp; Visualizer</p>
+          </div>
+          <button id="chipSupportButton" class="instrument-specs" type="button" aria-haspopup="dialog" aria-controls="chipSupportDialog">
+            <span class="spec-row"><span class="spec-label">Register log formats</span><strong>VGM / VGZ / S98</strong></span>
+            <span class="spec-row"><span class="spec-label">Sound chip analysis</span><strong>YM2612 / YM2203 / YM2608 / YM2610(B) / YM2151 / YM2164</strong></span>
+            <span class="spec-row"><span class="spec-label">Mega-CD / 32X playback</span><strong>YM2612 + PSG + RF5C164 PCM + PWM</strong></span>
+            <span class="spec-row"><span class="spec-label">Additional playback · MSX Y8950 + AY + YM2413 + SCC mix</span><strong>YM2413 / YM3526 / YM3812 / Y8950 / YMF262 / YMF278B / AY-3-8910 / YM2149 / K051649 / K052539 (SCC / SCC+) / OKIM6258 / Sega PCM / Game Boy DMG / NES APU + FDS (NTSC) / HuC6280</strong></span>
+            <span class="spec-row"><span class="spec-label">Tetorica sound laboratory · View support by chip ↗</span><span>Explore the music. Read the machine.</span></span>
+          </button>
+        </header>
+        <dialog id="chipSupportDialog" class="notes-dialog chip-support-dialog" aria-labelledby="chipSupportTitle">
+          <div class="notes-dialog-body">
+            <div class="notes-dialog-head"><h3 id="chipSupportTitle">Sound chip support</h3><form method="dialog"><button type="submit" autofocus>Close</button></form></div>
+            <p><a href="./support.html" target="_blank" rel="noopener">Open the shareable support page ↗</a></p>
+            <p>Playback and analysis have different coverage. “—” means the feature is not currently available. This list describes implemented features, not a guarantee for every track or chip combination.</p>
+            <div class="chip-support-scroll" tabindex="0" role="region" aria-label="Chip support table">
+              <table class="chip-support-table">
+                <caption>VGM / VGZ support by chip</caption>
+                <thead><tr><th scope="col">Chip</th><th scope="col">Playback</th><th scope="col">ON/OFF</th><th scope="col">State display</th><th scope="col">Note-ish</th><th scope="col">Voice / Export</th></tr></thead>
+                <tbody>
+                  <tr><th scope="row">YM2612</th><td>FM + DAC<br><small>Seek cache</small></td><td>6 FM CH, PSG</td><td>Operator Info</td><td>FM + PSG tone</td><td>TFI / VGI, audition, MIDI, MML, LilyPond</td></tr>
+                  <tr><th scope="row">YM2203</th><td>FM + SSG<br><small>Seek cache</small></td><td>3 FM CH, SSG</td><td>Operator Info / SSG</td><td>FM + SSG tone</td><td>TFI / VGI, audition, MIDI, MML, LilyPond</td></tr>
+                  <tr><th scope="row">YM2608</th><td>FM + SSG + Rhythm + ADPCM-B<br><small>Seek cache</small></td><td>FM CH, SSG / Rhythm / ADPCM-B</td><td>Operator Info / SSG</td><td>FM + SSG tone</td><td>TFI / VGI, audition, MIDI, MML, LilyPond</td></tr>
+                  <tr><th scope="row">YM2610 / YM2610B</th><td>FM + SSG + ADPCM-A/B<br><small>Seek cache</small></td><td>4 / 6 FM CH, SSG / ADPCM-A/B</td><td>Operator Info / SSG</td><td>FM + SSG tone</td><td>TFI / VGI, audition, MIDI, MML, LilyPond</td></tr>
+                  <tr><th scope="row">YM2151 / YM2164 (OPM / OPP)</th><td>8 FM CH<br><small>Seek cache</small></td><td>8 CH</td><td>Operator Info</td><td>FM</td><td>OPM Info, audition, OPM ZIP / snapshot, approximate TFI ZIP / snapshot, MIDI, MXDRV MML, LilyPond</td></tr>
+                  <tr><th scope="row">Sega PSG</th><td>Tone + noise<br><small>Seek cache: standalone / Genesis / YM2151 / YM2164</small></td><td>PSG group</td><td>PSG monitor</td><td>Tone</td><td>Tone MIDI / LilyPond; no FM voice export</td></tr>
+                  <tr><th scope="row">RF5C164</th><td>PCM (Mega-CD)<br><small>Seek cache: Genesis configuration</small></td><td>PCM group</td><td>PCM monitor / samples</td><td>—</td><td>Sample explorer</td></tr>
+                  <tr><th scope="row">32X PWM</th><td>PWM<br><small>Seek cache: Genesis configuration</small></td><td>PWM group</td><td>PWM / samples</td><td>—</td><td>Sample explorer</td></tr>
+                  <tr><th scope="row">YM2413</th><td>OPLL</td><td>9 CH; rhythm groups</td><td>Operator Info</td><td>FM (base pitch); rhythm channels have no single pitch</td><td>Base-pitch MIDI / LilyPond, MGSDRV MML (9-sound mode; rhythm omitted except Bass Drum); no FM voice snapshot export</td></tr>
+                  <tr><th scope="row">YMF262 (OPL3)</th><td>2OP / 4OP / rhythm</td><td>18 CH; 4OP pairs / rhythm groups</td><td>SBI Info</td><td>Note-ish / Sheet Music base pitch (2OP / 4OP)</td><td>SBI 2OP / 4OP, audition, ZIP / snapshot; MIDI / MusicXML / LilyPond; rhythm omitted, 4OP pairs use leading CH; MIDI requires multi-port support; register JSON snapshot</td></tr>
+                  <tr><th scope="row">YM3526 / YM3812</th><td>OPL / OPL2</td><td>9 CH</td><td>Voice / Operator Info, SBI Info</td><td>FM base pitch; rhythm CH7–9 and CSM omitted</td><td>SBI, audition, ZIP / snapshot; MIDI / MusicXML / LilyPond; OPL register-state voice snapshot JSON (no TFI/VGI conversion)</td></tr>
+                  <tr><th scope="row">Y8950</th><td>FM + ADPCM</td><td>9 FM CH, ADPCM, chip</td><td>FM operators / register snapshot, SBI Info</td><td>9 FM CH base pitch / Sheet Music</td><td>SBI, audition, ZIP / snapshot; MIDI / MusicXML / LilyPond; ADPCM, rhythm CH7–9 and CSM omitted. No instrument editing.</td></tr>
+                  <tr><th scope="row">YMF278B</th><td>OPL4 FM + PCM</td><td>18 FM CH, 24 PCM CH</td><td>SBI Info (FM)</td><td>FM base pitch (2OP / 4OP), Live / Song / Sheet Music; PCM and rhythm omitted</td><td>FM SBI 2OP / 4OP, audition, ZIP / snapshot; FM MIDI (multiple ports) / MusicXML / LilyPond; PCM Sample Explorer: key-on snapshots, waveform, one-pass preview / WAV; external Wave ROM when required; register JSON snapshot</td></tr>
+                  <tr><th scope="row">AY-3-8910 / YM2149</th><td>Tone + noise + envelope</td><td>3 CH, chip</td><td>AY Operator Info</td><td>Tone</td><td>Tone MIDI / LilyPond, MGSDRV MML (PSG tracks; adds YM2413 FM tracks when mixed)</td></tr>
+                  <tr><th scope="row">K051649 / K052539 (SCC / SCC+)</th><td>5-channel wavetable; mixed with MSX AY/YM2413/Y8950</td><td>5 CH, chip</td><td>—</td><td>Wavetable base pitch; Live / Song / Sheet Music</td><td>MIDI / MusicXML / LilyPond, including MSX mixtures; waveform harmonics and rewriting omitted</td></tr>
+                  <tr><th scope="row">HuC6280</th><td>6-channel wavetable, DDA, noise, LFO (MAME)</td><td>6 CH</td><td>Wave / PCM-DDA / Noise / LFO</td><td>6 CH base pitch; Live / Song. DDA, noise and LFO intervals omitted.</td><td>MIDI / MusicXML / LilyPond / WAV; DDA, noise and LFO omitted. Instrument editing and dual unsupported.</td></tr>
+                  <tr><th scope="row">OKIM6258</th><td>4-bit ADPCM; standalone or mixed<br><small>Seek cache: with YM2151 / YM2164 only</small></td><td>Chip (single toggle)</td><td>Sample Explorer</td><td>—</td><td>Timed ADPCM register captures / JSON / ZIP, decoded waveform, stereo preview / WAV (up to 10 s); play/stop intervals, not recovered instruments; preview restarts divider phase</td></tr>
+                  <tr><th scope="row">Sega PCM (315-5218)</th><td>16-voice 8-bit PCM; standalone, mixed with Sega PSG, or mixed with YM2151 / YM2164<br><small>Seek cache: with YM2151 / YM2164 only</small></td><td>16 CH, chip</td><td>Sample Explorer</td><td>—</td><td>Unsigned 8-bit ROM snapshots, usage / bank / loop settings, waveform, raw PCM / ZIP and one-pass stereo preview / WAV; no wrapped ranges or live automation</td></tr>
+                  <tr><th scope="row">NES APU + FDS (NTSC)</th><td>2 pulse + triangle + noise + DMC; optional FDS wavetable</td><td>5 CH + optional FDS CH6</td><td>—</td><td>Pulse / triangle / FDS base pitch; FDS modulation and timed envelopes omitted</td><td>MIDI / MusicXML / LilyPond; no MML or voice export. PAL/dual unsupported.</td></tr>
+                  <tr><th scope="row">Game Boy DMG (LR35902)</th><td>2 square + wave + noise</td><td>4 CH, chip</td><td>—</td><td>CH1/CH2 square + CH3 wave (base pitch); CH4 noise has no pitch</td><td>Base-pitch MIDI / LilyPond; no MML or FM/PCM voice export</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <ul>
+              <li><strong>Seek cache:</strong> speeds up seeking by restoring a saved playback position and replaying only the remaining interval. Available for OPN (YM2203 / YM2608 / YM2610 / YM2610B), Genesis configurations (YM2612 / Sega PSG / RF5C164 / 32X PWM), and YM2151 / YM2164 with optional Sega PSG / Sega PCM / OKIM6258. Every active chip must support restoration. Genesis or OPN mixed with OKIM6258, standalone Sega PCM / OKIM6258, and rows without a Seek cache label use normal seeking. Previously visited positions may be faster while their checkpoints remain cached; uncached sections still need replay. Changing the track, ROM or playback settings can invalidate the cache.</li>
+              <li><strong>YM2164 (OPP):</strong> selected by the VGM YM2151 clock field's bit 31. Shares the OPM analysis/export path; Timer B runs at half the YM2151 rate. Undocumented registers 0x00–0x07 are not emulated specially. Mixing with MSX AY / OPLL / Y8950 / SCC / SCC+ is supported. A second OPM/OPP chip is not supported. Playback, seeking, Timer B and note/voice extraction are covered by synthetic VGM tests; real SFG tracks have not yet been verified.</li>
+              <li><strong>S98:</strong> one YM2203, YM2608 or YM2612 device. Compressed S98 and multiple devices are not supported.</li>
+              <li><strong>MSX mix:</strong> YM2151 / YM2164 + Y8950 + AY + YM2413 + K051649 / K052539 (SCC / SCC+) playback, per-chip/channel controls, Live / Song Note-ish and MIDI / MusicXML / LilyPond export. AY noise, Y8950 ADPCM/rhythm/CSM and OPLL rhythm other than Bass Drum are omitted. SCC uses waveform repeat pitch; constant waves, halted periods and test frequency modes are omitted. More than 15 melodic tracks require multi-port MIDI playback. OPM/OPP noise, partial key masks and CSM are omitted. MSX mixtures use normal seeking; mixed voice export, MML and Operator Info are not available. A second instance of any chip and mixtures with YMF278B (OPL4) are not supported.</li>
+              <li><strong>PCM / ADPCM sheet music: TODO.</strong> Sample-based parts are not yet transcribed to Sheet Music / MusicXML / LilyPond or MIDI. Playback pitch alone does not determine the note name: the original sample's reference pitch must also be known or estimated. Drums and sound effects may have no definite pitch.</li>
+              <li><strong>Sample memory:</strong> some YMF278B tracks need an imported yrw801.rom (2 MiB). YM2608 rhythm playback uses the ADPCM-A ROM. YM2610 ADPCM uses the VGM's embedded ROM data. OKIM6258 needs no external sample ROM.</li>
+              <li><strong>OKIM6258:</strong> 3-bit ADPCM, recording and a second instance are not supported. YM2151 mixing is covered by synthetic tests with real cores.</li>
+              <li><strong>Sega PCM:</strong> an arcade chip (OutRun, Space Harrier, System 16/18/24, ...), not a stock Genesis/Mega Drive cartridge chip. ROM bank shift/mask come from the VGM header's interface register. Mixes with Sega PSG and/or YM2151 (e.g. OutRun). A second instance is not supported.</li>
+              <li><strong>Game Boy DMG:</strong> not mixed with any other chip yet. The DMG wave-RAM corruption glitch (retriggering channel 3 at an exact bad moment) is not reproduced. Note-ish/MIDI/LilyPond are write-driven approximations: length-counter timeout and channel 1 frequency sweep are time-based and not reconstructed from register writes.</li>
+              <li><strong>Note-ish / MIDI / MML:</strong> estimated base pitches and key intervals; PCM/drums and all modulation are not transcribed. MML uses a sixteenth-note grid. OPN exports target MUCOM88 / OPNAvoid; YM2151 / YM2164 targets MXDRV (MDX).</li>
+              <li><strong>DAC streams:</strong> first-instance YM2612, Sega PSG, PWM, OKIM6258 and HuC6280 destinations are supported. Other destinations are warned about and omitted.</li>
+              <li><strong>All / Snapshot:</strong> All collects voices across the track; Snapshot captures the current channel states. Unsupported chips and features can leave parts of a track silent; check the playback warning area.</li>
+            </ul>
+          </div>
+        </dialog>
+        <div class="actions">
+          <label class="file-input-group">
+            <span class="file-input-label">VGM / VGZ / S98 File</span>
+            <input id="fileInput" type="file" multiple accept=".vgm,.vgz,.s98,.bin,.rom,application/octet-stream">
+            <small class="file-drop-hint">Choose or drop music files to replace the playlist. Select multiple files together to create a playlist, sorted by filename with numeric ordering. Play starts sequential playback; Loop repeats the current track.</small>
+            <small id="romFileStatus" class="file-drop-hint">ROM files: import yrw801.rom (2 MiB) for Moonsound tracks without embedded samples, or ym2608_adpcm_rom.bin.</small>
+          </label>
+          <p class="file-drop-hint">YM2608 rhythm: <a href="./js/tetorica_ym2608_adpcm_rom.bin" download>Download Tetorica synthetic ROM</a>, then import it above. Sounds differ from the original. <a href="./assets/opna-rhythm/LICENSE">BSD-3-Clause license</a>.</p>
+          <section class="playlist" aria-label="Playlist">
+            <p id="playlistSummary" aria-live="polite">Playlist — no tracks imported</p>
+            <p id="detectedChips" class="file-drop-hint" aria-live="polite" hidden></p>
+            <ol id="playlistList"></ol>
+          </section>
+          <span class="action-break" aria-hidden="true"></span>
+          <div class="playback-seek">
+            <label for="inlinePlaybackSeek">Position</label>
+            <input id="inlinePlaybackSeek" type="range" min="0" max="0" step="4410" value="0" disabled>
+            <output id="inlinePlaybackSeekTime" for="inlinePlaybackSeek">0:00 / 0:00</output>
+          </div>
+          <div class="status" id="inlinePlaybackWarnings" role="status" style="flex-basis: 100%; white-space: pre-line" hidden></div>
+          <div class="status" id="inlinePlaybackError" role="alert" style="flex-basis: 100%; white-space: pre-line" hidden></div>
+          <button id="inlinePlayButton" type="button" disabled>Play</button>
+          <button id="inlinePauseButton" type="button" disabled>Pause</button>
+          <button id="inlineStopButton" type="button" disabled>Stop</button>
+          <button id="replayButton" type="button" disabled>Replay</button>
+          <label title="10 ms fades for browser playback; WAV export is unchanged"><input id="playbackFade" type="checkbox" checked> Fade in / out</label>
+          <label><input id="loopCheckbox" type="checkbox"> Loop</label>
+          <label id="playlistLoopControl" class="playlist-loop-control" hidden title="Return to the first track after the last track finishes"><input id="playlistLoopCheckbox" type="checkbox"> Playlist loop</label>
+          <label class="volume-control" for="masterVolumeRange">
+            <span>Vol</span>
+            <input id="masterVolumeRange" type="range" min="0" max="380" value="100" step="1">
+            <span id="masterVolumeValue" class="volume-readout">100%</span>
+          </label>
+          <div id="inlineMonitorToggles" class="monitor-toggles" role="group" aria-label="Playback channel and sound source toggles"></div>
+          <label for="prefetchFactorSelect">VGM queue</label>
+          <select id="prefetchFactorSelect" aria-label="VGM queue length">
+            <option value="1">x1</option>
+            <option value="1.5">x1.5</option>
+            <option value="2" selected>x2</option>
+            <option value="3">x3</option>
+          </select>
+          <label for="workletQueueSelect">Worklet queue</label>
+          <select id="workletQueueSelect" aria-label="Worklet queue length">
+            <option value="1">x1</option>
+            <option value="2" selected>x2</option>
+            <option value="3">x3</option>
+            <option value="4">x4</option>
+          </select>
+        </div>
+        <div class="sub-actions export-actions" role="group" aria-labelledby="exportLabel">
+          <span id="exportLabel" class="file-input-label export-label">Export</span>
+          <div class="export-row">
+            <button id="exportAllTfiButton" type="button" disabled>All TFI ZIP</button>
+            <button id="exportAllVgiButton" type="button" disabled>All VGI ZIP</button>
+            <button id="exportAllOpmButton" type="button" disabled hidden title="Collect distinct tones across the whole track">All OPM ZIP</button>
+            <button id="exportAllSbiButton" type="button" disabled hidden title="Collect distinct melodic OPL voices across the whole track">All SBI ZIP</button>
+            <button id="exportSbiButton" type="button" disabled hidden title="Select an extracted OPL voice to download">SBI voices</button>
+            <button id="exportSnapshotSbiButton" type="button" disabled hidden title="Select a current melodic OPL channel to download">Snapshot SBI</button>
+            <button id="exportSnapshotTfiButton" type="button" disabled>Snapshot TFI</button>
+            <button id="exportSnapshotVgiButton" type="button" disabled>Snapshot VGI</button>
+            <button id="exportOpmButton" type="button" disabled hidden title="Save current tones from all 8 channels">Snapshot OPM</button>
+          </div>
+          <div class="export-row">
+            <button id="exportMidiButton" type="button" disabled title="FM + SSG / PSG tone notes; original timing, no grid quantization">MIDI</button>
+            <button id="exportLilyPondButton" type="button" disabled title="Export editable sheet music: FM + SSG / PSG tones, 1/16 grid">LilyPond</button>
+            <button id="exportMusicSheetButton" type="button" disabled title="Preview sheet music or export MusicXML">Export Music Sheet</button>
+            <button id="exportMmlButton" type="button" disabled title="Export FM MML for OPNAvoid or MUCOM88; minimum 1/16">MML</button>
+          </div>
+          <div class="export-row">
+            <button id="exportParseInfoButton" type="button" disabled>VGM Info JSON</button>
+            <button id="exportSnapshotButton" type="button" disabled>Current Tone JSON</button>
+            <button id="exportWavButton" type="button" disabled title="Render full playback audio to a 16-bit stereo WAV file">WAV</button>
+          </div>
+        </div>
+        <div class="status" id="playbackError" role="alert" style="white-space: pre-line" hidden></div>
+        <div class="status" id="status" hidden></div>
+        <div class="status" id="playbackWarnings" role="status" style="white-space: pre-line" hidden></div>
+
+        <div class="tabbar" role="tablist" aria-label="Analyzer output panels">
+          <button
+            id="operatorInfoTab"
+            class="tab-button"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            tabindex="-1"
+            aria-controls="operatorInfoPanel"
+          >
+            Operator Info
+          </button>
+          <button
+            id="parsedOutputTab"
+            class="tab-button"
+            type="button"
+            role="tab"
+            aria-selected="true"
+            tabindex="0"
+            aria-controls="parsedOutputPanel"
+          >
+            Parsed Output
+          </button>
+          <button
+            id="noteishTab"
+            class="tab-button"
+            type="button"
+            role="tab"
+            aria-selected="false"
+            tabindex="-1"
+            aria-controls="noteishPanel"
+          >
+            Note-ish
+          </button>
+          <button id="sheetMusicTab" class="tab-button" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="sheetMusicPanel" disabled>Sheet Music</button>
+          <button id="tfiInfoTab" class="tab-button" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="tfiInfoPanel">Tfi info</button>
+          <button id="sampleExplorerTab" class="tab-button" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="sampleExplorerPanel">Sample Explorer</button>
+        </div>
+
+        <section id="opmInfoPanel" class="tab-panel" role="tabpanel" aria-labelledby="tfiInfoTab" hidden></section>
+        <section id="sbiInfoPanel" class="tab-panel" role="tabpanel" aria-labelledby="tfiInfoTab" hidden></section>
+        <section id="tfiInfoPanel" class="tab-panel" role="tabpanel" aria-labelledby="tfiInfoTab" hidden></section>
+        <section id="sampleExplorerPanel" class="tab-panel" role="tabpanel" aria-labelledby="sampleExplorerTab" hidden></section>
+        <section id="operatorInfoPanel" class="tab-panel" role="tabpanel" aria-labelledby="operatorInfoTab" hidden>
+          <h2>FM Channel Monitor</h2>
+          <div id="channelGrid" class="channel-grid"></div>
+          <h2 id="psgMonitorTitle">Sega PSG</h2>
+          <p class="noteish-help">Register settings at the generated audio position; playback may follow slightly later. These are not live audio levels.</p>
+          <div id="psgMonitorGrid" class="channel-grid"></div>
+          <details><summary>PSG / SSG registers</summary><div id="psgMonitorRegisters" class="channel-row"></div></details>
+          <h2 id="pcmMonitorTitle">RF5C164 PCM</h2>
+          <p id="pcmMonitorStatus" class="noteish-help">No file loaded.</p>
+          <p id="pcmMonitorHelp" class="noteish-help" hidden>Register settings at the generated audio position, not live audio levels. Channel ON is the enable setting; output also depends on Chip ON, volume, pan, sample data and PCM mute.</p>
+          <div id="pcmMonitorGrid" class="channel-grid" hidden></div>
+        </section>
+
+        <section id="sheetMusicPanel" class="tab-panel" role="tabpanel" aria-labelledby="sheetMusicTab" hidden>
+          <h2>Sheet Music</h2>
+          <button id="showSheetMusicButton" type="button" disabled>Show Sheet Music</button>
+          <p>Choose BPM and channels to generate the score. The renderer loads only when you press Preview.</p>
+          <p data-status role="status">Load a supported VGM, then press Show Sheet Music.</p>
+          <div data-pages style="background: white; overflow: auto"></div>
+          <details><summary>Transcription notes</summary><pre data-notices style="white-space: pre-wrap"></pre></details>
+          <p>Rendered with OpenSheetMusicDisplay. <a href="./vendor/osmd/README.md">Credits and licenses</a></p>
+        </section>
+
+        <section id="noteishPanel" class="tab-panel" role="tabpanel" aria-labelledby="noteishTab" hidden>
+          <h2>Channel Note-ish View</h2>
+          <button type="button" data-score-groups>Channel Groups…</button>
+          <div id="noteishViewTabs" class="tabbar" role="tablist" aria-label="Note-ish views">
+            <button id="noteLiveTab" class="tab-button" type="button" role="tab" data-noteish-view="live" aria-controls="noteLivePane" aria-selected="true">Live History</button>
+            <button id="notePitchTab" class="tab-button" type="button" role="tab" data-noteish-view="pitch" aria-controls="notePitchPane" aria-selected="false" tabindex="-1">Pitch</button>
+            <button id="noteSongTab" class="tab-button" type="button" role="tab" data-noteish-view="song" aria-controls="noteSongPane" aria-selected="false" tabindex="-1">Song Timeline</button>
+            <button id="noteFretTab" class="tab-button" type="button" role="tab" data-noteish-view="fretboard" aria-controls="noteFretPane" aria-selected="false" tabindex="-1">Fretboard</button>
+            <button id="noteAllFretTab" class="tab-button" type="button" role="tab" data-noteish-view="fretboard-all" aria-controls="noteAllFretPane" aria-selected="false" tabindex="-1">Fretboard (All)</button>
+            <button id="noteKeyboardTab" class="tab-button" type="button" role="tab" data-noteish-view="keyboard" aria-controls="noteKeyboardPane" aria-selected="false" tabindex="-1">Semantic Keyboard</button>
+          </div>
+          <div hidden>
+            <select id="noteishInstrument"><option value="keyboard">Keyboard</option><option value="fretboard">Fretboard</option></select>
+            <select id="noteishMode"><option value="normal">Normal</option><option value="detail">Detailed</option></select>
+            <select id="noteTimelineMode"><option value="live">Live</option><option value="score">Song</option></select>
+          </div>
+          <section id="noteFretPane" role="tabpanel" aria-labelledby="noteFretTab" hidden>
+          <div id="fretboardOptions" hidden>
+            <label class="noteish-mode-control">Strings
+              <select id="fretboardStrings">
+                <option value="6">6 — E2–E6</option>
+                <option value="7">7 — B1–E6</option>
+                <option value="8" selected>8 — F#1–E6</option>
+              </select>
+            </label>
+            <p class="noteish-help">Position follows each channel: stay within a five-fret window when possible. Prefer strings 1–6 and frets 0–21; use the extended range only when needed. At fret 12 and above, use strings 1–4. High strings at the top, low strings at the bottom. Solid marks show current notes. Previous notes fade over 2.5 seconds, including after key off. Arrows indicate notes outside the range. This is a pitch display, not fingering or TAB.</p>
+          </div>
+          </section>
+          <section id="noteAllFretPane" role="tabpanel" aria-labelledby="noteAllFretTab" hidden>
+            <p class="noteish-help">All FM and SSG / PSG tone channels on one fretboard. Colors identify channels; shared positions use colored sectors. Each channel keeps its own position choice. This is a pitch map, not a playable chord or fingering.</p>
+            <div id="allFretboardGraph" class="noteish-graph"></div>
+          </section>
+          <section id="noteKeyboardPane" role="tabpanel" aria-labelledby="noteKeyboardTab" hidden>
+            <p id="noteishDetailHelp" class="noteish-help">C1–C7 in semitone steps. Scroll horizontally to inspect the keyboard. Orange: observed range. Blue: current pitch; gray: key off.</p>
+          </section>
+          <section id="noteLivePane" role="tabpanel" aria-labelledby="noteLiveTab">
+            <p class="noteish-help">Recent pitch history across all channels. Time flows from right to left.</p>
+            <div class="noteish-overview"><div id="noteishOverview" role="region" aria-label="Recent channel pitch history"></div></div>
+          </section>
+          <section id="notePitchPane" role="tabpanel" aria-labelledby="notePitchTab" hidden>
+            <p class="noteish-help">Current pitch, observed range and recent history for each channel.</p>
+            <div id="noteishGrid" class="noteish-grid" hidden></div>
+          </section>
+          <section id="noteSongPane" role="tabpanel" aria-labelledby="noteSongTab" hidden>
+            <p class="noteish-help">Follow the melody from left to right in semitone rows. Scroll or zoom, click to choose a playback position, then Play.</p>
+            <div id="noteTimeline"></div>
+          </section>
+        </section>
+
+        <section id="parsedOutputPanel" class="tab-panel" role="tabpanel" aria-labelledby="parsedOutputTab">
+          <h2 id="metadataHeading">Track metadata (GD3)</h2>
+          <dl id="metadataOutput" class="track-metadata">No file loaded.</dl>
+
+          <h2>Header</h2>
+          <pre id="headerOutput">No file loaded.</pre>
+
+          <div id="commandEditor"></div>
+
+          <h2>Command Usage</h2>
+          <pre id="commandUsageOutput">No analysis yet.</pre>
+
+          <h2>Data Blocks</h2>
+          <pre id="dataBlocksOutput">No data blocks inspected yet.</pre>
+
+          <h2>Special Command Details</h2>
+          <pre id="specialCommandsOutput">No special command details yet.</pre>
+
+          <h2>0x68 PCM RAM Write</h2>
+          <pre id="pcmRamWriteOutput">No 0x68 PCM RAM write details yet.</pre>
+
+          <h2>0x92 Context</h2>
+          <pre id="command92ContextOutput">No 0x92 context yet.</pre>
+        </section>
+
+        <dialog id="notesDialog" class="notes-dialog">
+          <div class="notes-dialog-body">
+            <div class="notes-dialog-head">
+              <h3 id="notesDialogTitle">Channel Notes</h3>
+              <button id="notesDialogCloseButton" class="noteish-button" type="button">Close</button>
+            </div>
+            <pre id="notesDialogOutput" class="notes-dialog-output">No notes yet.</pre>
+          </div>
+        </dialog>
+        <dialog id="mmlFormatDialog" aria-labelledby="mmlFormatTitle">
+          <form method="dialog">
+            <h3 id="mmlFormatTitle">Export MML format</h3>
+            <p>Choose the FM MML dialect.</p>
+            <p>
+              <label for="mmlBpmInput">BPM</label>
+              <input id="mmlBpmInput" type="number" min="34" max="999" step="any" value="120" required style="width: 5em" aria-describedby="mmlBpmHelp">
+            </p>
+            <p id="mmlBpmHelp">Suggested tempo with manual adjustment (34–999 BPM). Used for sixteenth-note quantization.</p>
+            <button value="mucom88">MUCOM88</button>
+            <button value="opnavoid">OPNAVOID</button>
+            <button value="mxdrv" hidden disabled>MXDRV (MDX)</button>
+            <button value="mgsdrv" hidden disabled>MGSDRV</button>
+            <button value="cancel" formnovalidate>Cancel</button>
+          </form>
+        </dialog>
+        <dialog id="musicSheetExportDialog" aria-labelledby="musicSheetExportTitle">
+          <form method="dialog">
+            <h3 id="musicSheetExportTitle">Export Music Sheet</h3>
+            <p>One staff per FM / SSG / PSG tone channel. Preview the score or download an editable MusicXML file.</p>
+            <p><label for="musicSheetBpmInput">BPM</label>
+              <input id="musicSheetBpmInput" type="number" min="4" max="999" step="1" value="120" required></p>
+            <p id="musicSheetTempoHelp">Default: 120 BPM. You can change this value.</p>
+            <button type="button" data-score-groups>Channel Groups…</button><p>Selecting any group member includes the complete group. Regenerate after changes.</p><fieldset><legend>Include channels</legend><div id="musicSheetChannels" style="max-height: 14em; overflow: auto"></div></fieldset>
+            <p>Assumed 4/4 and a 1/16 grid. Key, meter and triplets are not detected.
+              PCM, noise, timbres and modulation are omitted. Short notes may disappear; unknown pitches become rests.</p>
+            <button value="preview">Preview</button>
+            <button value="export">Export MusicXML</button>
+            <button value="cancel" formnovalidate>Cancel</button>
+          </form>
+        </dialog>
+        <dialog id="musicSheetPreviewDialog" aria-labelledby="musicSheetPreviewTitle" style="width: min(95vw, 1100px); max-height: 90vh; overflow: auto">
+          <h3 id="musicSheetPreviewTitle">Music Sheet preview</h3>
+          <p data-status role="status"></p>
+          <form method="dialog"><button>Close</button></form>
+          <div data-pages style="background: white; color: black; overflow: auto"></div>
+          <details><summary>Transcription notes</summary><pre data-notices style="white-space: pre-wrap"></pre></details>
+          <p><a href="./vendor/osmd/README.md" target="_blank" rel="noopener">OpenSheetMusicDisplay · Credits and licenses</a></p>
+        </dialog>
+        <dialog id="lilyPondExportDialog" aria-labelledby="lilyPondExportTitle">
+          <form method="dialog">
+            <h3 id="lilyPondExportTitle">Export LilyPond</h3>
+            <p>One staff per FM / SSG / PSG tone channel. Download an editable .ly file for LilyPond.</p>
+            <p><label for="lilyPondBpmInput">BPM</label>
+              <input id="lilyPondBpmInput" type="number" min="4" max="999" step="1" value="120" required></p>
+            <p id="lilyPondTempoHelp">Default: 120 BPM. You can change this value.</p>
+            <button type="button" data-score-groups>Channel Groups…</button><p>Selecting any group member includes the complete group. Regenerate after changes.</p><fieldset><legend>Include channels</legend><div id="lilyPondChannels" style="max-height: 14em; overflow: auto"></div></fieldset>
+            <p>Assumed 4/4 and a 1/16 grid. Key, meter and triplets are not detected.
+              PCM, noise, timbres and modulation are omitted. Short notes may disappear; unknown pitches become rests.</p>
+            <button value="export">Export .ly</button>
+            <button value="cancel" formnovalidate>Cancel</button>
+          </form>
+        </dialog>
+        <dialog id="midiExportDialog" aria-labelledby="midiExportTitle">
+          <form method="dialog">
+            <h3 id="midiExportTitle">Export MIDI</h3>
+            <p>FM + SSG / PSG tones with Pitch Bend and original timing. Noise, PCM, envelope phase and original timbres are omitted.</p>
+            <p>
+              <label for="midiBpmInput">BPM</label>
+              <input id="midiBpmInput" type="number" min="4" max="999" step="any" value="120" required style="width: 5em" aria-describedby="midiBpmHelp">
+            </p>
+            <p id="midiBpmHelp">Suggested tempo with manual adjustment. Original note timing is preserved; BPM sets the beat grid.</p>
+            <button value="export">Export</button>
+            <button value="cancel" formnovalidate>Cancel</button>
+          </form>
+        </dialog>
+        <dialog id="wavExportDialog" aria-labelledby="wavExportTitle">
+          <form method="dialog">
+            <h3 id="wavExportTitle">Export WAV</h3>
+            <p>Render the actual playback audio (all chips and channels together) to a 16-bit stereo WAV file at the playback sample rate.</p>
+            <p>
+              <label for="wavMaxSecondsInput">Max length (seconds)</label>
+              <input id="wavMaxSecondsInput" type="number" min="1" max="600" step="1" value="120" required style="width: 5em" aria-describedby="wavMaxSecondsHelp">
+            </p>
+            <p id="wavMaxSecondsHelp">Defaults to this track's own length from the VGM header. Rendering stops early once the track ends (when Loop is off). With Loop on, rendering stops at this limit — raise it to capture extra loop passes.</p>
+            <p id="wavExportStatus" role="status"></p>
+            <button value="export">Export WAV</button>
+            <button value="cancel" formnovalidate>Cancel</button>
+          </form>
+        </dialog>
+        <footer class="instrument-footer"><span>Tetorica</span><strong>FM SOUND LABORATORY</strong><span>Inspect · Learn · Reconstruct</span></footer>
+      </section>
+    </main>
+    <section class="playback-dock" aria-label="Playback controls">
+      <div class="playback-dock-tools">
+        <button id="dockPlayTab" class="link-button" type="button" aria-controls="dockPlayPane" aria-pressed="true">Play/Ch</button>
+        <button id="dockEffectTab" class="link-button" type="button" aria-controls="dockEffectPane" aria-pressed="false">Effect</button>
+      </div>
+      <div class="playback-dock-scroll">
+        <div id="dockPlayPane">
+          <div class="playback-seek">
+            <label for="playbackSeek">Position</label>
+            <input id="playbackSeek" type="range" min="0" max="0" step="4410" value="0" disabled>
+            <output id="playbackSeekTime" for="playbackSeek">0:00 / 0:00</output>
+          </div>
+          <div class="playback-dock-buttons">
+            <button id="playButton" type="button" disabled>Play</button>
+            <button id="pauseButton" type="button" disabled>Pause</button>
+            <button id="stopButton" type="button" disabled>Stop</button>
+          </div>
+          <div id="monitorToggles" class="monitor-toggles" role="group" aria-label="Playback channel and sound source toggles"></div>
+        </div>
+        <div id="dockEffectPane" hidden>
+          <button id="effectEnabled" type="button" class="channel-toggle is-muted" aria-pressed="false">Effect Off</button>
+          <div id="effectControls" class="effect-controls">
+            <label>Gain<input id="effectGain" type="range" min="0" max="200" value="100" disabled><output id="effectGainValue" for="effectGain">100%</output></label>
+            <label>Bass<input id="effectBass" type="range" min="-12" max="12" value="0" disabled><output id="effectBassValue" for="effectBass">0 dB</output></label>
+            <label>Middle<input id="effectMiddle" type="range" min="-12" max="12" value="0" disabled><output id="effectMiddleValue" for="effectMiddle">0 dB</output></label>
+            <label>Treble<input id="effectTreble" type="range" min="-12" max="12" value="0" disabled><output id="effectTrebleValue" for="effectTreble">0 dB</output></label>
+            <label>Reverb<input id="effectReverb" type="range" min="0" max="100" value="0" disabled><output id="effectReverbValue" for="effectReverb">0%</output></label>
+            <label>Compressor<input id="effectCompressor" type="range" min="0" max="100" value="0" disabled><output id="effectCompressorValue" for="effectCompressor">0%</output></label>
+            <label>Noise Gate<input id="effectNoiseGate" type="range" min="0" max="100" value="0" disabled><output id="effectNoiseGateValue" for="effectNoiseGate">0%</output></label>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <script type="module" src="./vgm_analyzer.js?v=gb-info-perf-1"></script>
+  <dialog id="scoreGroupDialog"><form method="dialog">
+<h2>Channel Groups</h2><p>Combine notes for scores and the Song timeline. Playback and live physical CH monitors are unchanged. Settings last for this loaded track only.</p>
+<button type="button" data-all>Merge all channels</button> <button type="button" data-clear>Clear groups</button>
+<div data-groups></div><hr><label>Name <input data-name maxlength="80"></label>
+<div data-channels style="max-height:16em;overflow:auto"></div>
+<button type="button" data-save>Save selected group</button><p data-error role="status"></p><button value="close">Close</button>
+</form></dialog>
+</body>
+</html>

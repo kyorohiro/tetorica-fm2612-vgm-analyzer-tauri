@@ -1,0 +1,29 @@
+AY-3-8910 / YM2149: MAME adaptation, BSD-3-Clause. See licenses/mame-ay8910/.
+
+HuC6280: MAME adaptation by Charles MacDonald, BSD-3-Clause. See licenses/mame-huc6280/.
+OKIM6258: MAME adaptation by Barry Rodewald, BSD-3-Clause. See licenses/mame-okim6258/.
+
+RF5C164: MAME adaptation, BSD-3-Clause. See licenses/mame-rf5c164/LICENSE and README.md.
+
+K051649 (Konami SCC): MAME adaptation by Bryan McPhail, BSD-3-Clause. See licenses/mame-k051649/LICENSE and README.md.
+
+Sega PCM (315-5218): MAME adaptation by Hiromitsu Shioya, Olivier Galibert, BSD-3-Clause. See licenses/mame-segapcm/LICENSE and README.md.
+
+Game Boy APU (LR35902 DMG): MAME adaptation by Wilbert Pol, Anthony Kruize, BSD-3-Clause. See licenses/mame-gameboy/LICENSE and README.md.
+
+This package includes two YM2612 engine options:
+
+- Default engine: ymfm
+  - Project: https://github.com/aaronsgiles/ymfm
+  - License: BSD 3-Clause
+  - Covered by: ./LICENSE
+
+- Optional engine: Nuked-OPN2
+  - Project: https://github.com/nukeykt/Nuked-OPN2
+  - Vendored source in this repository: third_party/nuked-opn2/
+  - License: GNU Lesser General Public License v2.1 or later (LGPL-2.1-or-later)
+  - Included license files:
+    - ./licenses/nuked-opn2/LICENSE
+    - ./licenses/nuked-opn2/README.md
+
+Use ?engine=nuked only if you want the optional Nuked-OPN2 backend.

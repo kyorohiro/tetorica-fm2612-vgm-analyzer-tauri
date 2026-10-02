@@ -1,5 +1,5 @@
 {
-  "archive": "hello_ymfm_wasm_v0.41.1_itch_vgm_analyzer.zip",
+  "archive": "hello_ymfm_wasm_dev_itch_vgm_analyzer.zip",
   "files": {
     "LICENSE": "2d2e9213c170a9866c616fa85b6da993a6724e10befc61f468ed9bfb84c4691c",
     "THIRD_PARTY_LICENSES.txt": "bdc827ec248394dc02177a399dd6fcfd16fea7ddac959cce39bd09e87179423a",
@@ -232,6 +232,6 @@
     "ymf262_notes.js": "203f4777efedf829da9185111e7ea0b0c8aa5c561f11ee7b59428526bd496336",
     "ymf278b_samples.js": "f8afd3d93515c330e9ace1ab212c9dc33778ac6d01bd74fa7cffbe7f296f3eed"
   },
-  "sha256": "fe5045c395e4b248c4b1eb8f03ad78eb67a1cb5cfb268cd2f45aa2da9b1b9528",
+  "sha256": "1c8a3a4d89d802f90d7e6a49dbbe2168b98d61b0388131a8339fb9e6de349b30",
   "version": "v0.41.1"
 }
