@@ -47,7 +47,55 @@
     input.dispatchEvent(new Event('change', {bubbles: true}));
   }
 
+  function confirmAction(message) {
+    return new Promise(resolve => {
+      const dialog = document.createElement('dialog');
+      dialog.setAttribute('aria-label', 'Confirm action');
+      const text = document.createElement('p');
+      text.textContent = message;
+      const cancel = document.createElement('button');
+      cancel.type = 'button';
+      cancel.textContent = 'Cancel';
+      const proceed = document.createElement('button');
+      proceed.type = 'button';
+      proceed.textContent = 'Continue';
+      let accepted = false;
+      cancel.addEventListener('click', () => dialog.close());
+      proceed.addEventListener('click', () => { accepted = true; dialog.close(); });
+      dialog.addEventListener('close', () => {
+        dialog.remove();
+        resolve(accepted);
+      }, {once:true});
+      dialog.append(text, cancel, proceed);
+      document.body.append(dialog);
+      dialog.showModal();
+      cancel.focus();
+    });
+  }
+
   function mount() {
+    const resetCache = document.querySelector('[data-reset-offline-cache]');
+    resetCache?.addEventListener('click', async (event) => {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      if (resetCache.disabled) return;
+      resetCache.disabled = true;
+      if (!await confirmAction('Clear the offline cache and reload? Playback will stop.')) { resetCache.disabled = false; return; }
+      resetCache.disabled = true;
+      try {
+        if (window.caches) {
+          const keys = await window.caches.keys();
+          await Promise.all(keys.filter(key => key.startsWith('hello-ymfm-docs-'))
+            .map(key => window.caches.delete(key)));
+        }
+        const registrations = await window.navigator?.serviceWorker?.getRegistrations?.() ?? [];
+        await Promise.all(registrations.map(registration => registration.unregister()));
+        await invoke('window_reload');
+      } catch (error) {
+        resetCache.disabled = false;
+        window.alert('Failed to reset offline cache: ' + String(error));
+      }
+    }, {capture:true});
     if (!document.getElementById('fileInput') || document.getElementById('desktop-library')) return;
     const host = document.createElement('div');
     host.id = 'desktop-library';

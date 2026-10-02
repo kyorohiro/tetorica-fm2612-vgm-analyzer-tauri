@@ -25,6 +25,12 @@ fn window_top_set(window: tauri::WebviewWindow, enabled: bool) -> Result<bool, S
     set_window_top(&window, enabled)
 }
 
+#[tauri::command]
+fn window_reload(window: tauri::WebviewWindow) -> Result<(), String> {
+    library::allowed(&window)?;
+    window.reload().map_err(|e| e.to_string())
+}
+
 fn main() {
     let context = tauri::generate_context!();
     let dev_origin = if cfg!(debug_assertions) {
@@ -50,6 +56,7 @@ fn main() {
         )
         .invoke_handler(tauri::generate_handler![
             window_top_get,
+            window_reload,
             window_top_set,
             library::library_list,
             library::library_choose,

@@ -42,3 +42,47 @@ test('other localhost ports, remote pages and subframes do not receive the bridg
     assert.equal(result.listeners.length, 0);
   }
 });
+
+test('offline cache reset invokes native reload, supports missing APIs and recovers from errors', async () => {
+  for (const available of [false, true]) {
+    let listener, confirmed = false, fail = false;
+    const actions = [];
+    const button = {addEventListener: (name, fn) => { listener = fn; }};
+    const document = {readyState:'complete', querySelector:() => button, getElementById:() => null,
+      createElement:() => ({
+        listeners:{}, setAttribute(){}, append(...children){this.children = children;},
+        addEventListener(name, fn){this.listeners[name] = fn;},
+        close(){this.listeners.close();}, remove(){}, showModal(){}, focus(){}
+      }),
+      body:{append(dialog){setImmediate(() => dialog.children[confirmed ? 2 : 1].listeners.click());}}
+    };
+    const window = {confirm:() => confirmed, alert:message => actions.push(message),
+      __TAURI_INTERNALS__:{invoke:async command => {
+        assert.equal(command,'window_reload');
+        if (fail) throw Error('reload failed');
+        actions.push('reload');
+      }}};
+    window.top = window;
+    if (available) {
+      window.caches = {keys:async () => ['hello-ymfm-docs-v1','other'],
+        delete:async key => actions.push(key)};
+      window.navigator = {serviceWorker:{getRegistrations:async () => [
+        {unregister:async () => actions.push('unregister')}
+      ]}};
+    }
+    vm.runInNewContext(source.replace('__DESKTOP_DEV_ORIGIN__','null'), {
+      window,document,location:new URL('tauri://localhost/index.html')
+    });
+    const event = {preventDefault(){},stopImmediatePropagation(){}};
+    await listener(event);
+    assert.deepEqual(actions,[]);
+    confirmed = true;
+    await listener(event);
+    assert.deepEqual(actions,available ? ['hello-ymfm-docs-v1','unregister','reload'] : ['reload']);
+    fail = true;
+    button.disabled = false;
+    await listener(event);
+    assert.equal(button.disabled,false);
+    assert.match(actions.at(-1),/reload failed/);
+  }
+});
