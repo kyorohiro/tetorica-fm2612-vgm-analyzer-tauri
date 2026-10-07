@@ -15,15 +15,23 @@ npm run dev
 
 チェックアウトに Analyzer 本体（`dist/`）が含まれるため、起動・ビルド時の ZIP ダウンロードは不要です。`release.lock.json` は取り込み元の記録と、展開内容の整合性検査に使います。ZIP 自体は Git に含めません。
 
-別の release に更新するときだけバージョンを明示します。
+## Analyzer 本体を更新する
+
+手動で用意した Analyzer の release ZIP のパスを指定します。
+ZIP の置き場所・ファイル名は自由です。相対パスはコマンドを実行したディレクトリから解釈します。
 
 ```sh
-npm run import:release -- /path/to/new-release.zip --version vX.Y.Z
+npm run import:release -- ./xxx.zip
 npm test
-npm run build
+npm run dev
 ```
 
-`--version` なしの取り込みでは、ZIP の SHA-256 が現在の記録と一致する必要があります。dev / build 前にも展開内容を検査します。`dist/` は取り込みで生成しますが、Git に含めます。変更は上流で行い、新しい ZIP として取り込んでください。動作確認した `dist/` と `release.lock.json` を同じコミットに含め、そのコミットからビルドします。Windows でもファイルのハッシュが変わらないよう、`.gitattributes` で `dist/` の改行変換を無効にしています。
+取り込みで `dist/` と `release.lock.json` が更新されます。バージョン指定は不要です。
+ZIP の SHA-256 と展開した各ファイルのハッシュを記録します。
+
+動作確認後、`dist/` と `release.lock.json` を同じコミットに含めてから `npm run build` します。
+ZIP 自体は Git に含めません。dev / build 前の `--check` はチェックアウト済み `dist/` の整合性を検査し、ZIP の取得や取り込みは行いません。
+Windows でもファイルのハッシュが変わらないよう、`.gitattributes` で `dist/` の改行変換を無効にしています。
 
 macOS のビルド結果は `src-tauri/target/release/bundle/macos/` に出力されます。ローカルの既定ビルドは app のみです。CI では下記の各 OS 向け配布形式を指定します。署名・公証・自動更新は未対応です。
 
@@ -95,7 +103,7 @@ npm run build
 - Windows x86_64：NSIS インストーラー。
 - Linux x86_64 / ARM64：DEB と AppImage。
 
-Node 22、Python 3.12、Rust 1.91.1 を使用し、npm / Cargo の lockfile を維持します。Actions はチェックアウト済みの `dist/` を `release.lock.json` の各ファイルのハッシュと照合します。Analyzer 本体を外部から取得しません。上流を更新する際は、ローカルで新 ZIP を `--version` 付きで取り込み、動作確認後に `dist/` と `release.lock.json` を一緒にコミットしてください。タグもそのコミットに付けます。`release.source.json` と `fetch_release.py` は廃止しました。
+Node 22、Python 3.12、Rust 1.91.1 を使用し、npm / Cargo の lockfile を維持します。Actions はチェックアウト済みの `dist/` を `release.lock.json` の各ファイルのハッシュと照合します。Analyzer 本体を外部から取得しません。上流を更新する際は、`npm run import:release -- ./xxx.zip` で新 ZIP を取り込み、動作確認後に `dist/` と `release.lock.json` を一緒にコミットしてください。タグもそのコミットに付けます。`release.source.json` と `fetch_release.py` は廃止しました。
 
 タグはこの Tauri アプリのバージョンです。タグ作成前に `package.json` / `package-lock.json` と `src-tauri/Cargo.toml` / `Cargo.lock`、`tauri.conf.json` のバージョンを揃えてください。署名用 Secret は設定していないため、生成物は未署名です。
 
