@@ -560,7 +560,7 @@
       }
 
     </style>
-    <link rel="stylesheet" href="./analyzer_theme.css?v=chip-support-1">
+    <link rel="stylesheet" href="./analyzer_theme.css?v=chip-mixer-1">
   </head>
   <body>
     <p id="chipSupportNotice" role="status" hidden>YM2413 analysis and instrument editing: Support coming soon.</p>
@@ -601,7 +601,7 @@
                   <tr><th scope="row">YM2151 / YM2164 (OPM / OPP)</th><td>8 FM CH<br><small>Seek cache</small></td><td>8 CH</td><td>Operator Info</td><td>FM</td><td>OPM Info, audition, OPM ZIP / snapshot, approximate TFI ZIP / snapshot, MIDI, MXDRV MML, LilyPond</td></tr>
                   <tr><th scope="row">Sega PSG</th><td>Tone + noise<br><small>Seek cache: standalone / Genesis / YM2151 / YM2164</small></td><td>PSG group</td><td>PSG monitor</td><td>Tone</td><td>Tone MIDI / LilyPond; no FM voice export</td></tr>
                   <tr><th scope="row">RF5C164</th><td>PCM (Mega-CD)<br><small>Seek cache: Genesis configuration</small></td><td>PCM group</td><td>PCM monitor / samples</td><td>—</td><td>Sample explorer</td></tr>
-                  <tr><th scope="row">32X PWM</th><td>PWM<br><small>Seek cache: Genesis configuration</small></td><td>PWM group</td><td>PWM / samples</td><td>—</td><td>Sample explorer</td></tr>
+                  <tr><th scope="row">32X PWM</th><td>MAME-derived PWM<br><small>Seek cache: Genesis configuration</small></td><td>PWM group</td><td>PWM / samples</td><td>—</td><td>Sample explorer</td></tr>
                   <tr><th scope="row">YM2413</th><td>OPLL</td><td>9 CH; rhythm groups</td><td>Operator Info</td><td>FM (base pitch); rhythm channels have no single pitch</td><td>Base-pitch MIDI / LilyPond, MGSDRV MML (9-sound mode; rhythm omitted except Bass Drum); no FM voice snapshot export</td></tr>
                   <tr><th scope="row">YMF262 (OPL3)</th><td>2OP / 4OP / rhythm</td><td>18 CH; 4OP pairs / rhythm groups</td><td>SBI Info</td><td>Note-ish / Sheet Music base pitch (2OP / 4OP)</td><td>SBI 2OP / 4OP, audition, ZIP / snapshot; MIDI / MusicXML / LilyPond; rhythm omitted, 4OP pairs use leading CH; MIDI requires multi-port support; register JSON snapshot</td></tr>
                   <tr><th scope="row">YM3526 / YM3812</th><td>OPL / OPL2</td><td>9 CH</td><td>Voice / Operator Info, SBI Info</td><td>FM base pitch; rhythm CH7–9 and CSM omitted</td><td>SBI, audition, ZIP / snapshot; MIDI / MusicXML / LilyPond; OPL register-state voice snapshot JSON (no TFI/VGI conversion)</td></tr>
@@ -950,6 +950,7 @@
       <div class="playback-dock-tools">
         <button id="dockPlayTab" class="link-button" type="button" aria-controls="dockPlayPane" aria-pressed="true">Play/Ch</button>
         <button id="dockEffectTab" class="link-button" type="button" aria-controls="dockEffectPane" aria-pressed="false">Effect</button>
+        <button id="dockMixerTab" class="link-button" type="button" aria-controls="dockMixerPane" aria-pressed="false">Mixer</button>
       </div>
       <div class="playback-dock-scroll">
         <div id="dockPlayPane">
@@ -964,6 +965,11 @@
             <button id="stopButton" type="button" disabled>Stop</button>
           </div>
           <div id="monitorToggles" class="monitor-toggles" role="group" aria-label="Playback channel and sound source toggles"></div>
+        </div>
+        <div id="dockMixerPane" hidden>
+          <div class="mixer-toolbar"><strong>Chip Mixer</strong><button id="mixerReset" type="button" class="link-button">Reset</button></div>
+          <label class="mixer-control">Master<input id="mixerMaster" aria-label="Mixer master volume" type="range" min="0" max="380" value="100"><output id="mixerMasterValue" for="mixerMaster">100%</output></label>
+          <div id="mixerStrips"><p>Load a VGM to adjust chip levels.</p></div>
         </div>
         <div id="dockEffectPane" hidden>
           <button id="effectEnabled" type="button" class="channel-toggle is-muted" aria-pressed="false">Effect Off</button>
@@ -980,7 +986,7 @@
       </div>
     </section>
 
-    <script type="module" src="./vgm_analyzer.js?v=gb-info-perf-1"></script>
+    <script type="module" src="./vgm_analyzer.js?v=chip-mixer-1"></script>
   <dialog id="scoreGroupDialog"><form method="dialog">
 <h2>Channel Groups</h2><p>Combine notes for scores and the Song timeline. Playback and live physical CH monitors are unchanged. Settings last for this loaded track only.</p>
 <button type="button" data-all>Merge all channels</button> <button type="button" data-clear>Clear groups</button>

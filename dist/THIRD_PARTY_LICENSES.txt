@@ -12,6 +12,8 @@ Sega PCM (315-5218): MAME adaptation by Hiromitsu Shioya, Olivier Galibert, BSD-
 
 Game Boy APU (LR35902 DMG): MAME adaptation by Wilbert Pol, Anthony Kruize, BSD-3-Clause. See licenses/mame-gameboy/LICENSE and README.md.
 
+MAME 32X PWM adaptation: BSD-3-Clause. See licenses/mame-32x-pwm/.
+
 This package includes two YM2612 engine options:
 
 - Default engine: ymfm

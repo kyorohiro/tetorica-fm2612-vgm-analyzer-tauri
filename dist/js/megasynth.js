@@ -1,3 +1,5 @@
+import {createPWM32XAudio} from './playground_pwm_audio.js';
+import {createPWM32XClient} from './pwm32x_playback.js';
 /**
  * @file megasynth.js
  * 実行環境: Browser（メインスレッド）
@@ -46,7 +48,7 @@ const YM2612_NATIVE_SAMPLE_RATE =
 
 /**
  * @typedef {import("./megasynth_fx.js").AnyFXUnit} AnyFXUnit
- * @typedef {import("./ym2612synth.js").YM2612Synth} YM2612Synth
+ * @typedef {import("./ym2612synth.js").YM2612Synth} YM2612SynthType
  * @typedef {import("./ym2612synth.js").YM2612Transport} YM2612Transport
  */
 
@@ -136,6 +138,8 @@ const YM2612_NATIVE_SAMPLE_RATE =
  *   ym2612WasmUrl?: string,
  *   segaPsgWasmUrl?: string | null,
  *   megaCD?: boolean,
+ *   mega32X?: boolean,
+ *   pwmOptions?: {clock?: number, gain?: number, outputMode?: "duty" | "dac"},
  *   rf5c164WasmUrl?: string,
  *   rf5c164WorkletUrl?: string,
  *   rf5c164Fetch?: typeof fetch,
@@ -311,6 +315,10 @@ export class MegaSynth {
      * default except in Mega CD mode, so FM-only callers are unaffected.
      */
     this.megaCD = options.megaCD === true;
+    this.mega32X = options.mega32X === true;
+    this.pwmOptions = options.pwmOptions ?? {};
+    /** @type {(import("./pwm32x_playback.js").AsyncPWMAPI & {dispose(): void}) | null} */
+    this.pwm = null; this.pwmDevice = null;
     this.segaPsgWasmUrl = options.segaPsgWasmUrl !== undefined
       ? options.segaPsgWasmUrl
       : this.megaCD ? resolveSiblingWorkletUrl(this.ym2612WasmUrl, 'segapsg_wasm.wasm') : null;
@@ -330,7 +338,7 @@ export class MegaSynth {
       false;
     this.listeners = new Set();
 
-    /** @type {YM2612Synth | null} */
+    /** @type {YM2612SynthType | null} */
     this.fm = null;
 
     /** @type {{ write(value: number): void, reset(): void } | null} */
@@ -442,6 +450,7 @@ export class MegaSynth {
    */
   reset() {
     this.fm?.reset();
+    if (this.pwm) return Promise.all([this.pwm.reset(), this.pcm?.reset()]).then(() => undefined);
     return this.pcm?.reset();
   }
 
@@ -862,11 +871,18 @@ export class MegaSynth {
         finally { this.sample.unload(name); }
       });
     }
+    if (this.mega32X) {
+      const device = await createPWM32XAudio(this.audioContext, this.masterInputNode, {...this.pwmOptions, signal});
+      if (signal.aborted) {device.dispose(); signal.throwIfAborted();}
+      this.pwmDevice = device; this.pwm = createPWM32XClient(device.port);
+    }
     this.#ensureRecordingManager();
     this.#installRecordingHooks();
   }
 
   #disposePcm() {
+    this.pwm?.dispose(); this.pwm = null;
+    this.pwmDevice?.dispose(); this.pwmDevice = null;
     this.pcm?.dispose();
     this.pcm = null;
     this.pcmDevice?.dispose();
