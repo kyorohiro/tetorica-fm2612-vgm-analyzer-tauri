@@ -1,3 +1,5 @@
+import {allocateSoundChipId} from './soundchip_mixer.js';
+export {SoundChipMixer, soundChipMixDefaults} from './soundchip_mixer.js';
 /**
  * @file Browser / Node.js の便利なチップ生成入口。DOM・AudioContext は不要。
  * 選択した WASM だけを読み込む。最小配布には soundchip_factory.js を使うこと。
@@ -13,6 +15,8 @@ export {encodeWav} from './wav.js';
  * @property {URL|string} [assetBaseUrl] 生成済み *_wasm.js / .wasm のディレクトリURL（末尾 /）。
  * @property {Function} [moduleFactory] 注入する Emscripten factory。指定時は自動ロードを省略。
  * @property {Object} [moduleOptions] wasmBinary、locateFile などをそのまま渡す。
+ * @property {import('./soundchip_mixer.js').SoundChipMixer} [mixer] Worklet output mixer.
+ * @property {string} [id] Stable chip ID (automatically allocated when omitted).
  * @property {AbortSignal} [signal] WASM ファイルの読み込みを中断する。
  * @property {'direct'|'worklet'} [execution='direct'] チップの実行場所。worklet はブラウザーのみ。
  * @property {AudioContext} [audioContext] Worklet の接続先。省略時は factory が生成・解放する。
@@ -178,17 +182,18 @@ const createLocalSoundChip = createSoundChipFactory(loaders);
  * @overload
  * @param {Name} name
  * @param {SoundChipOptions & {execution?: 'direct'}} [options]
- * @returns {Promise<SoundChipMap[Name]>}
+ * @returns {Promise<SoundChipMap[Name] & {readonly id: string}>}
  */
 /**
  * @template {WorkletChipName} Name
  * @overload
  * @param {Name} name
  * @param {SoundChipOptions} options
- * @returns {Promise<SoundChipMap[Name] | import('./soundchip_worklet.js').WorkletSoundChip>}
+ * @returns {Promise<(SoundChipMap[Name] & {readonly id: string}) | import('./soundchip_worklet.js').WorkletSoundChip>}
  */
 /** @param {keyof SoundChipMap} name @param {SoundChipOptions} [options] */
 export function createSoundChip(name, options = {}) {
+  if (options.mixer && options.execution !== 'worklet') return Promise.reject(new Error('An output mixer requires execution: worklet; direct chips generate raw PCM'));
   if (options.execution === 'worklet') {
     if (options.moduleFactory) return Promise.reject(new Error('Worklet execution uses the packaged chip factory'));
     const moduleName = name === 'gameboy' ? 'gameboy_apu' : name;
@@ -201,8 +206,11 @@ export function createSoundChip(name, options = {}) {
     });
   }
   if (options.execution !== undefined && options.execution !== 'direct') return Promise.reject(new Error('Unknown sound-chip execution mode'));
-  if (name === 'pwm') {
-    return Promise.resolve().then(() => {options.signal?.throwIfAborted(); return new PWM32X(options);});
-  }
-  return createLocalSoundChip(name, options);
+  let id;
+  try {id = allocateSoundChipId(name, options.id);} catch (error) {return Promise.reject(error);}
+  const pending = name === 'pwm' ? Promise.resolve().then(() => {options.signal?.throwIfAborted(); return new PWM32X(options);}) : createLocalSoundChip(name, options);
+  return pending.then(chip => {
+    Object.defineProperty(chip, 'id', {value: id, enumerable: true});
+    return chip;
+  });
 }
