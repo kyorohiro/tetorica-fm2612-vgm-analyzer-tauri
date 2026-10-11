@@ -5,6 +5,12 @@
  * チップ操作・PCM 生成に DOM・AudioContext は不要。ローダーは実行環境に合わせて渡す。
  */
 export const AY8910_CLOCK = 1789773;
+/**
+ * Validate clock/rate and the AY variants supported by the backend.
+ * @param {{clock?: number, sampleRate?: number, type?: number, flags?: number}} [options={}] Clock in Hz and PCM samples per second.
+ * @returns {void}
+ * @throws {Error | RangeError} For unsupported variants/flags or invalid clock/rate.
+ */
 export function validateAy8910({clock=AY8910_CLOCK,sampleRate=44100,type=0,flags=1}={}) {
   if(!Number.isInteger(clock)||clock<=0||clock>0x3fffffff||!Number.isInteger(sampleRate)||sampleRate<=0||sampleRate>384000)
     throw new RangeError('Invalid AY clock or sample rate');
@@ -22,8 +28,8 @@ export class Ay8910 {
    * Initialize Ay8910 and its native WASM module.
    * The generated module factory is injected so browser and Node callers can choose asset loading.
    * @param {import("./soundchip.js").SoundChipOptions} [options={}] Chip and Emscripten initialization settings.
-   * @param {function(Object): (Object|Promise<Object>)} options.moduleFactory Generated WASM module factory.
-   * @param {Object} [options.moduleOptions] Forwarded loader options, e.g. wasmBinary or locateFile.
+   * @param {import('./soundchip.js').WasmModuleFactory} options.moduleFactory Generated WASM module factory.
+   * @param {import('./soundchip.js').WasmModuleOptions} [options.moduleOptions] Forwarded loader options, e.g. wasmBinary or locateFile.
    * @param {number} [options.clock] Input chip clock in Hz.
    * @param {number} [options.sampleRate=44100] Generated PCM frames per second.
    * @returns {Promise<Ay8910>} Ready-to-use chip; the caller must dispose it.

@@ -3,7 +3,7 @@
  * 実行環境: Browser / Node.js
  * 依存: VGM パーサーと注入された音声エンジン。PCM 生成にはエンジンが必要。AudioContext は不要。
  */
-import { Ym2612VGM } from "./ym2612vgm.js?v=dac-warning-1";
+import { Ym2612VGM } from "./ym2612vgm.js?v=msm5205-1";
 
 /**
  * One rendered stereo chunk waiting to be copied into the audio callback
@@ -85,6 +85,7 @@ export class VgmPlayer {
     this.maxFillStepsPerProcess = 512;
     /** @type {number} */
     this.waitAccumulator = 0;
+    this.pendingWaitSamples = 0;
     /** @type {VgmAudioChunk[]} */
     this.chunkQueue = [];
     /** @type {number} */
@@ -105,6 +106,7 @@ export class VgmPlayer {
   load(buffer, options = {}) {
     this.clearCheckpoints();
     this.parser = new Ym2612VGM(buffer, options);
+    this.pendingWaitSamples = 0;
     this.engine.clearOki6295Rom?.();
     this.engine.clearSampleMemory?.();
     this.engine.clearAdpcmBMemory?.();
@@ -131,6 +133,7 @@ export class VgmPlayer {
     this.#hasLooped = false;
     this.parser.reset();
     this.engine.reset();
+    this.pendingWaitSamples = 0;
     this.waitAccumulator = 0;
     this.chunkQueue = [];
     this.queuedFrames = 0;
@@ -191,6 +194,7 @@ export class VgmPlayer {
     this.#hasLooped = false;
     this.parser.reset();
     this.engine.reset();
+    this.pendingWaitSamples = 0;
     this.waitAccumulator = 0;
     this.playing = false;
     this.paused = false;
@@ -210,7 +214,7 @@ export class VgmPlayer {
     if (!this.supportsState()) throw new Error('Playback state saving unavailable');
     const data = {parser: this.parser.savePlaybackState(), engine: this.engine.saveState(),
       queue: structuredClone(this.chunkQueue), queuedFrames: this.queuedFrames,
-      waitAccumulator: this.waitAccumulator, processedEvents: this.processedEvents,
+      waitAccumulator: this.waitAccumulator, pendingWaitSamples: this.pendingWaitSamples, processedEvents: this.processedEvents,
       processedWaitSamples: this.processedWaitSamples, hasLooped: this.#hasLooped,
       playing: this.playing, paused: this.paused, ui: this.captureSeekState?.()};
     const byteLength = stateByteLength(data.parser) + stateByteLength(data.queue) + stateByteLength(data.ui) + data.engine.byteLength + 256;
@@ -227,7 +231,7 @@ export class VgmPlayer {
     this.engine.loadState(d.engine);
     this.parser.loadPlaybackState(parser);
     this.chunkQueue = queue;
-    for (const key of ['queuedFrames', 'waitAccumulator', 'processedEvents', 'processedWaitSamples', 'playing', 'paused']) this[key] = d[key];
+    for (const key of ['queuedFrames', 'waitAccumulator', 'pendingWaitSamples', 'processedEvents', 'processedWaitSamples', 'playing', 'paused']) this[key] = d[key];
     this.#hasLooped = d.hasLooped;
     if (d.ui !== undefined) this.restoreSeekState?.(structuredClone(d.ui));
   }
@@ -388,9 +392,11 @@ export class VgmPlayer {
    * @param {Float32Array} left
    * @param {Float32Array} right
    * @param {number} frames
+   * @param {{budgetMs?: number}} [options] Optional cooperative budget; a short
+   * return contains only generated audio and must be retried, not padded for playback.
    * @returns {number} Audio frames copied, excluding end-of-track zero padding.
    */
-  process(left, right, frames) {
+  process(left, right, frames, {budgetMs = Infinity} = {}) {
     if (!this.parser || this.paused) {
       left.fill(0, 0, frames);
       right.fill(0, 0, frames);
@@ -398,7 +404,7 @@ export class VgmPlayer {
     }
 
     if (this.playing) {
-      this.#fillQueue(Math.ceil(frames * this.prefetchFactor), frames);
+      this.#fillQueue(Math.ceil(frames * this.prefetchFactor), frames, budgetMs);
     }
 
     if (!this.playing && !this.paused && this.queuedFrames === 0) {
@@ -418,8 +424,10 @@ export class VgmPlayer {
    * @param {number} targetFrames
    * @returns {void}
    */
-  #fillQueue(targetFrames, requiredFrames = targetFrames) {
+  #fillQueue(targetFrames, requiredFrames = targetFrames, budgetMs = Infinity) {
     let steps = 0;
+    const cooperative = Number.isFinite(budgetMs) && budgetMs > 0;
+    const deadline = cooperative ? performance.now() + budgetMs : Infinity;
     // The normal budget limits speculative prefetch, not the audio requested
     // by the caller. Dense direct DAC/PWM writes can need thousands of events.
     // Retain a hard bound for malformed streams / loops with no time progress.
@@ -430,17 +438,22 @@ export class VgmPlayer {
       steps < hardLimit &&
       (steps < this.maxFillStepsPerProcess || this.queuedFrames < requiredFrames)
     ) {
+      if (cooperative && steps > 0 && performance.now() >= deadline) break;
       steps += 1;
       const targets = this.engine.vgmTargets ?? createVgmTargets(this.engine);
+      if (this.pendingWaitSamples > 0) {
+        // Bound native synthesis too: one long VGM wait can span over a second.
+        // Advance DAC streams alongside each slice before reading another command.
+        const samples = cooperative ? Math.min(this.pendingWaitSamples, 256) : this.pendingWaitSamples;
+        this.parser.consumeWait(targets, samples, vgmSamples => this.#renderWaitSegment(vgmSamples));
+        this.pendingWaitSamples -= samples;
+        continue;
+      }
       const event = this.parser.playStep(targets);
       this.processedEvents += 1;
 
       if (event.type === "wait") {
-        this.parser.consumeWait(
-          targets,
-          event.samples,
-          (vgmSamples) => this.#renderWaitSegment(vgmSamples),
-        );
+        this.pendingWaitSamples = event.samples;
         continue;
       }
 
@@ -538,7 +551,14 @@ function stateByteLength(value, seen = new Set()) {
 }
 
 // Shared register/memory adapters for legacy engines and the generic mixer.
+/**
+ * Adapt an engine's available register/memory methods to VGM runtime targets.
+ * @param {VgmPlaybackEngine} engine Playback engine; optional chip methods enable their targets.
+ * @returns Chip-specific targets; unavailable chip targets are undefined.
+ */
 export function createVgmTargets(engine) {
+  const msm5205 = typeof engine.writeMsm5205==='function'
+    ? {writeRegister:(register,value)=>engine.writeMsm5205(register,value)} : undefined;
   const ym2612Target = typeof engine.writeYm2612 === "function"
     ? { writeRegister: (register, value, port = 0) => engine.writeYm2612(port, register, value) }
     : undefined;
@@ -597,6 +617,7 @@ export function createVgmTargets(engine) {
   } : undefined;
   return {
     resolveChip: engine.getVgmTarget?.bind(engine),
+    msm5205,
     pwm: { writeRegister: (register, value) => engine.writePwm?.(register, value) },
     rf5c164: rf5c164Target,
     ym2612: ym2612Target,

@@ -5,6 +5,12 @@
  * チップ操作・PCM 生成に DOM・AudioContext は不要。ローダーは実行環境に合わせて渡す。
  */
 export const SEGAPCM_CLOCK = 4000000;
+/**
+ * Validate Sega PCM generation settings.
+ * @param {{clock?: number, sampleRate?: number}} [options={}] Chip clock in Hz and PCM samples per second.
+ * @returns {void}
+ * @throws {RangeError} For an invalid clock or sample rate.
+ */
 export function validateSegaPcm({clock=SEGAPCM_CLOCK,sampleRate=44100}={}) {
   if(!Number.isInteger(clock)||clock<=0||clock>0x3fffffff||!Number.isInteger(sampleRate)||sampleRate<=0||sampleRate>384000)
     throw new RangeError('Invalid Sega PCM clock or sample rate');
@@ -20,8 +26,8 @@ export class SegaPcm {
    * Initialize SegaPcm and its native WASM module.
    * The generated module factory is injected so browser and Node callers can choose asset loading.
    * @param {import("./soundchip.js").SoundChipOptions & {bankShift?: number, bankMask?: number}} [options={}] Chip and Emscripten initialization settings.
-   * @param {function(Object): (Object|Promise<Object>)} options.moduleFactory Generated WASM module factory.
-   * @param {Object} [options.moduleOptions] Forwarded loader options, e.g. wasmBinary or locateFile.
+   * @param {import('./soundchip.js').WasmModuleFactory} options.moduleFactory Generated WASM module factory.
+   * @param {import('./soundchip.js').WasmModuleOptions} [options.moduleOptions] Forwarded loader options, e.g. wasmBinary or locateFile.
    * @param {number} [options.clock] Input chip clock in Hz.
    * @param {number} [options.sampleRate=44100] Generated PCM frames per second.
    * @returns {Promise<SegaPcm>} Ready-to-use chip; the caller must dispose it.

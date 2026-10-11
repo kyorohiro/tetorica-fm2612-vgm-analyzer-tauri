@@ -11,20 +11,43 @@ import {PWM32X} from './pwm32x.js';
 export {encodeWav} from './wav.js';
 
 /**
+ * Loader settings forwarded to an Emscripten chip factory.
+ * @typedef {Object} WasmLoaderOptions
+ * @property {Uint8Array|ArrayBuffer} [wasmBinary] Preloaded WASM bytes.
+ * @property {(path:string, prefix:string)=>string} [locateFile] Resolve generated assets.
+ * @property {(message:string)=>void} [print] Standard output callback.
+ * @property {(message:string)=>void} [printErr] Error output callback.
+ * @property {boolean} [noInitialRun] Skip the generated main entry point.
+ */
+/**
+ * Common native memory and binding surface used by the chip wrappers.
+ * Generated modules may expose additional chip-specific functions.
+ * @typedef {Object} WasmChipModule
+ * @property {Float32Array} HEAPF32 Native float sample memory.
+ * @property {Uint8Array} HEAPU8 Native byte memory.
+ * @property {(bytes:number)=>number} _malloc Allocate native memory.
+ * @property {(pointer:number)=>void} _free Release native memory.
+ * @property {((name:string, result:'number', args:string[]) => (...values:number[])=>number) & ((name:string, result:null, args:string[]) => (...values:number[])=>void)} cwrap Bind a native chip entry point.
+ */
+/** @typedef {WasmLoaderOptions & Record<string, unknown>} WasmModuleOptions */
+/** @typedef {(options?: WasmModuleOptions)=>WasmChipModule|Promise<WasmChipModule>} WasmModuleFactory */
+
+/**
  * @typedef {Object} SoundChipOptions
  * @property {URL|string} [assetBaseUrl] 生成済み *_wasm.js / .wasm のディレクトリURL（末尾 /）。
- * @property {Function} [moduleFactory] 注入する Emscripten factory。指定時は自動ロードを省略。
- * @property {Object} [moduleOptions] wasmBinary、locateFile などをそのまま渡す。
+ * @property {WasmModuleFactory} [moduleFactory] 注入する Emscripten factory。指定時は自動ロードを省略。
+ * @property {WasmModuleOptions} [moduleOptions] wasmBinary、locateFile などをそのまま渡す。
  * @property {import('./soundchip_mixer.js').SoundChipMixer} [mixer] Worklet output mixer.
  * @property {string} [id] Stable chip ID (automatically allocated when omitted).
  * @property {AbortSignal} [signal] WASM ファイルの読み込みを中断する。
  * @property {'direct'|'worklet'} [execution='direct'] チップの実行場所。worklet はブラウザーのみ。
  * @property {AudioContext} [audioContext] Worklet の接続先。省略時は factory が生成・解放する。
  * @property {number} [clock] Input clock in Hz.
+ * @property {boolean} [fds=false] Enable the FDS expansion on NES.
  * @property {number} [sampleRate] Requested PCM/output sample rate.
  * @property {number} [type] AY chip variant type.
  * @property {number} [flags] Chip-specific flags.
- * @property {boolean} [variant] Chip variant selection.
+ * @property {boolean|'ym2151'|'ym2164'} [variant] Chip variant selection.
  * @property {'dac'|'duty'} [outputMode] PWM amplitude scaling.
  * @property {AudioNode} [outputNode] Browser output destination.
  * @property {number} [gain=0.25] Worklet endpoint の出力音量。
@@ -55,6 +78,12 @@ async function loadModule(name, options = {}) {
 }
 
 const loaders = {
+  nes: async options => {
+    options.signal?.throwIfAborted();
+    const {NesApu} = await import('./nesapu.js');
+    options.signal?.throwIfAborted();
+    return NesApu.create(options);
+  },
   gameboy: async (options) => {
     const {GameboyApu} = await import('./gameboyapu.js');
     return GameboyApu.create(await loadModule('gameboy_apu', options));
@@ -153,6 +182,7 @@ const createLocalSoundChip = createSoundChipFactory(loaders);
  *   gameboy: import('./gameboyapu.js').GameboyApu,
  *   segapsg: import('./segapsg.js').SegaPSG,
  *   pwm: import('./pwm32x.js').PWM32X,
+ *   nes: import('./nesapu.js').NesApu,
  *   ay8910: import('./ay8910.js').Ay8910,
  *   y8950: import('./y8950.js').Y8950,
  *   ym2610b: import('./ym2610b.js').Ym2610B,
@@ -169,7 +199,7 @@ const createLocalSoundChip = createSoundChipFactory(loaders);
  *   ymf278b: import('./ymf278b.js').Ymf278b,
  *   ymf288: import('./ymf288.js').Ymf288,
  * }} SoundChipMap */
-/** @typedef {'ym2612'|'ym2608'|'ym2151'|'gameboy'|'segapsg'|'pwm'} WorkletChipName */
+/** @typedef {'ym2612'|'ym2608'|'ym2151'|'gameboy'|'segapsg'|'pwm'|'nes'} WorkletChipName */
 /**
  * @template {WorkletChipName} Name
  * @overload
@@ -198,7 +228,7 @@ export function createSoundChip(name, options = {}) {
     if (options.moduleFactory) return Promise.reject(new Error('Worklet execution uses the packaged chip factory'));
     const moduleName = name === 'gameboy' ? 'gameboy_apu' : name;
     return createWorkletSoundChip(name, options, async () => {
-      if (name === 'pwm') return undefined;
+      if (name === 'pwm' || name === 'nes') return undefined;
       const loaded = await loadModule(moduleName, options);
       const bytes = loaded.moduleOptions.wasmBinary;
       if (!bytes) throw new Error('Worklet execution requires WASM bytes; use wasmBinary or default asset loading');

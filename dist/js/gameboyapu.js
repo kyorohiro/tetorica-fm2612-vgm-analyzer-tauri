@@ -5,6 +5,12 @@
  * チップ操作・PCM 生成に DOM・AudioContext は不要。ローダーは実行環境に合わせて渡す。
  */
 export const GAMEBOY_APU_CLOCK = 4194304;
+/**
+ * Validate Game Boy APU generation settings.
+ * @param {{clock?: number, sampleRate?: number}} [options={}] Chip clock in Hz and PCM samples per second.
+ * @returns {void}
+ * @throws {RangeError} For an invalid clock or sample rate.
+ */
 export function validateGameboyApu({clock=GAMEBOY_APU_CLOCK,sampleRate=44100}={}) {
   if(!Number.isInteger(clock)||clock<=0||clock>0x3fffffff||!Number.isInteger(sampleRate)||sampleRate<=0||sampleRate>384000)
     throw new RangeError('Invalid Game Boy APU clock or sample rate');
@@ -15,12 +21,13 @@ export function validateGameboyApu({clock=GAMEBOY_APU_CLOCK,sampleRate=44100}={}
  * Register writes program the chip; generateStereo() advances it to produce PCM.
  */
 export class GameboyApu {
+  #states = new WeakMap();
   /**
    * Initialize GameboyApu and its native WASM module.
    * The generated module factory is injected so browser and Node callers can choose asset loading.
    * @param {import("./soundchip.js").SoundChipOptions} [options={}] Chip and Emscripten initialization settings.
-   * @param {function(Object): (Object|Promise<Object>)} options.moduleFactory Generated WASM module factory.
-   * @param {Object} [options.moduleOptions] Forwarded loader options, e.g. wasmBinary or locateFile.
+   * @param {import('./soundchip.js').WasmModuleFactory} options.moduleFactory Generated WASM module factory.
+   * @param {import('./soundchip.js').WasmModuleOptions} [options.moduleOptions] Forwarded loader options, e.g. wasmBinary or locateFile.
    * @param {number} [options.clock] Input chip clock in Hz.
    * @param {number} [options.sampleRate=44100] Generated PCM frames per second.
    * @returns {Promise<GameboyApu>} Ready-to-use chip; the caller must dispose it.
@@ -51,6 +58,27 @@ export class GameboyApu {
    * @throws {Error} When the chip has been disposed.
    */
   assertAlive(){if(!this.handle)throw new Error('GameboyApu is disposed');}
+  supportsState(){return !!this.handle && typeof this.module._gameboy_apu_save_state==='function' && typeof this.module._gameboy_apu_load_state==='function';}
+  saveState(){
+    if(!this.supportsState())throw new Error('Game Boy state saving unavailable');
+    const size=this.module._gameboy_apu_save_state(this.handle,0),ptr=this.module._malloc(size);
+    if(!ptr)throw new Error('Game Boy state allocation failed');
+    try{
+      this.module._gameboy_apu_save_state(this.handle,ptr);
+      const bytes=new Uint8Array(this.module.HEAPF32.buffer,ptr,size).slice();
+      const state=Object.freeze({byteLength:size});this.#states.set(state,bytes);return state;
+    }finally{this.module._free(ptr);}
+  }
+  validateState(state){if(!this.supportsState()||!this.#states.has(state))throw new Error('Invalid or foreign Game Boy state');}
+  loadState(state){
+    this.validateState(state);
+    const bytes=this.#states.get(state),ptr=this.module._malloc(bytes.length);
+    if(!ptr)throw new Error('Game Boy state allocation failed');
+    try{
+      new Uint8Array(this.module.HEAPF32.buffer,ptr,bytes.length).set(bytes);
+      if(!this.module._gameboy_apu_load_state(this.handle,ptr,bytes.length))throw new Error('Invalid native Game Boy state');
+    }finally{this.module._free(ptr);}
+  }
   /**
    * Reset synthesis state for a new playback pass. Reapply voice and key registers afterward.
    * @returns {void}
