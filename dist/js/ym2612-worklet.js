@@ -1,3 +1,7 @@
+import {PsgInspectorState, receiveChipInspector} from './playground_chip_inspector_state.js?v=chip-tabs-2';
+import {validateChipClock} from './playground_chip_clock.js';
+import {createPerformanceQueue, createPerformanceChipOwnership} from './playground_performance_queue.js';
+import {createOpnAuditionGuard, receiveOpnAuditionCommand} from './playground_audition_guard.js';
 import {YM2612DacPlayer, receiveDacCommand} from "./ym2612_dac.js";
 import {createChipPortReceiver} from "./playground_chip_port.js?v=dac-pcm-1";
 /**
@@ -32,6 +36,7 @@ class YM2612Processor extends AudioWorkletProcessor {
     super();
 
     this.ym2612 = null;
+    this.auditions = null;
     this.psg = null;
     this.initializing = false;
     this.resampleRemainder = 0;
@@ -42,13 +47,20 @@ class YM2612Processor extends AudioWorkletProcessor {
     this.mixTargets = {ym2612: [1, 1], segapsg: [1, 1]};
     this.mixCurrent = {ym2612: [1, 1], segapsg: [1, 1]};
     this.mixRemaining = {ym2612: 0, segapsg: 0};
+    this.mixMeterEnabled = {ym2612: false, segapsg: false};
+    this.mixMeterPeaks = new Float32Array(4);
+    this.mixMeterFrames = 0;
     this.pendingCommands = [];
     this.scheduledCommands = [];
     this.scheduledHead = 0;
     this.dacBanks = new Map();
     this.dacStreams = [];
     this.pcmDac = new YM2612DacPlayer(sampleRate, (p, r, v) => this.ym2612.writeRegister(r, v, p));
-    this.envelopeRmsBuckets = [];
+    this.envelopeEnabled = false;
+    this.envelopeRmsBuckets = new Float32Array(16);
+    this.envelopeOffset = 0;
+    this.envelopeFrames = 0;
+    this.envelopeSum = 0;
     this.envelopeBucketSize = 512;
     this.envelopeMessageSize = 16;
     this.captureActive = false;
@@ -57,9 +69,26 @@ class YM2612Processor extends AudioWorkletProcessor {
     this.captureRightChunks = [];
     this.captureFrameCount = 0;
 
-    const receiveChipPort = createChipPortReceiver((command, reply) => this.applyCommand(command, reply));
+    this.performanceOwnership = createPerformanceChipOwnership({
+      writeFm: (register, value, port) => this.ym2612?.writeRegister(register, value, port),
+      writePsg: value => this.psg?.write(value),
+      channelCount: 6,
+    });
+    this.performanceQueue = createPerformanceQueue({
+      apply: (command, reply, frame, performance) => this.applyCommand(command, reply, frame, performance),
+      onCancelOwner: owner => {
+        this.performanceOwnership.cancel(owner);
+        if (this.performanceDacOwner === owner) {this.performanceDacOwner = null; this.pcmDac.stop();}
+      },
+      nowFrame: () => currentFrame,
+      sampleRate,
+      prepare: (command, reply, performance) => this.preparePerformanceCommand(command, reply, performance),
+    });
+    const receiveChipPort = createChipPortReceiver((command, reply) => this.applyCommand(command, reply), undefined, {performanceQueue: this.performanceQueue});
     this.port.onmessage = (event) => {
       const command = event.data;
+      if (command?.type==='chip-inspector' && receiveChipInspector(command,this.port,this.psgInspector ? (action,method,args)=>action==='read'?this.psgInspector.read():this.psgInspector.invoke(method,args) : null)) return;
+      if (this.performanceQueue.receive(command, message => this.port.postMessage(message))) return;
       if (receiveChipPort(command)) return;
 
       if (command.type === "initialize") {
@@ -88,6 +117,7 @@ class YM2612Processor extends AudioWorkletProcessor {
           wasmBinary: new Uint8Array(wasmBinary),
         }
       );
+      this.auditions = createOpnAuditionGuard(this.ym2612, 6);
       this.ym2612.setHooks({
         onIrq: (asserted) => {
           this.port.postMessage({
@@ -116,6 +146,8 @@ class YM2612Processor extends AudioWorkletProcessor {
           clock: SEGAPSG_CLOCK,
         });
       }
+
+      if (this.psg) this.psgInspector = new PsgInspectorState(this.psg, {sampleRate});
 
       // Reserve the usual 128-frame render quantum without advancing chip time.
       // Larger quanta remain supported by the wrappers' capacity checks.
@@ -151,14 +183,85 @@ class YM2612Processor extends AudioWorkletProcessor {
     }
   }
 
-  applyCommand(command, reply = message => this.port.postMessage(message)) {
+  preparePerformanceCommand(command, reply, performance) {
+    if (command.type === 'chip-clock') {
+      try {
+        if (!this.ym2612) throw new Error('Chip not ready');
+        const clock = validateChipClock(command.clock);
+        reply?.({type: 'chip-clock-result', id: command.id});
+        return {...command, clock, performanceAcknowledged: true};
+      } catch (error) { reply?.({type: 'chip-clock-result', id: command.id, error: error.message}); return null; }
+    }
+    if (command.type !== 'pcm-dac') return command;
+    try {
+      const data = command.command;
+      if (data.action === 'play' && data.when === undefined) {
+        const probe = new YM2612DacPlayer(sampleRate, () => {});
+        probe.samples = this.pcmDac.samples;
+        probe.command(data, Math.round(performance.time * sampleRate));
+        reply?.({type: 'pcm-dac-result', id: command.id});
+        return {type: 'performance-pcm-dac-start', reservation: probe.queue[0]};
+      }
+      if (data.action === 'stop') {
+        reply?.({type: 'pcm-dac-result', id: command.id});
+        return {type: 'performance-pcm-dac-stop'};
+      }
+      // Loading/removing samples and explicit absolute-time reservations are
+      // preparation, not an extra delay added to the DAC's existing clock.
+      this.pcmDac.command(data, currentFrame);
+      reply?.({type: 'pcm-dac-result', id: command.id});
+    } catch (error) { reply?.({type: 'pcm-dac-result', id: command.id, error: error.message}); }
+    return null;
+  }
+
+  applyCommand(command, reply = message => this.port.postMessage(message), commandFrame = currentFrame, performance) {
+    this.performanceOwnership.observe(command, performance);
+    if (command.type === 'performance-pcm-dac-start') {
+      this.performanceDacOwner = performance?.owner ?? null;
+      const reservation = command.reservation, queue = this.pcmDac.queue;
+      reservation.start = Math.max(commandFrame, reservation.start);
+      let index = queue.length; queue.push(reservation);
+      while (index > 0 && queue[index - 1].start > reservation.start) { queue[index] = queue[index - 1]; index--; }
+      queue[index] = reservation;
+      return;
+    }
+    if (command.type === 'performance-pcm-dac-stop') { this.performanceDacOwner = null; this.pcmDac.stop(); return; }
+    if (receiveOpnAuditionCommand(this.auditions, command, reply)) return;
+    if (command.type === 'chip-clock') {
+      try { if (!this.ym2612) throw new Error('Chip not ready'); this.clock = validateChipClock(command.clock); if (!command.performanceAcknowledged) reply({type:'chip-clock-result',id:command.id}); }
+      catch (error) { if (!command.performanceAcknowledged) reply({type:'chip-clock-result',id:command.id,error:error.message}); }
+      return;
+    }
+    if (command.type === 'mixer-metering') {
+      if (!MIX_SOURCES.includes(command.name) || typeof command.enabled !== 'boolean') throw new RangeError('Invalid mixer metering request');
+      this.mixMeterEnabled[command.name] = command.enabled;
+      const index = command.name === 'ym2612' ? 0 : 2;
+      this.mixMeterPeaks[index] = this.mixMeterPeaks[index + 1] = 0;
+      if (!this.mixMeterEnabled.ym2612 && !this.mixMeterEnabled.segapsg) this.mixMeterFrames = 0;
+      return;
+    }
     if (command.type === 'mixer-settings') {
       if (!['ym2612', 'segapsg'].includes(command.name) || !Array.isArray(command.gains) || command.gains.length !== 2 || command.gains.some(v => !Number.isFinite(v) || v < 0 || v > 2)) throw new RangeError('Invalid mixer settings');
       this.mixTargets[command.name] = command.gains;
       this.mixRemaining[command.name] = Math.max(1, Math.round(sampleRate * .005));
       return;
     }
-    if (receiveDacCommand(this.pcmDac, command, currentFrame, reply)) return;
+    if (command.type === 'set-output-envelope') {
+      const samplesPerPoint = command.samplesPerPoint === undefined ? this.envelopeBucketSize : command.samplesPerPoint;
+      const pointsPerMessage = command.pointsPerMessage === undefined ? this.envelopeMessageSize : command.pointsPerMessage;
+      if (!Number.isInteger(samplesPerPoint) || samplesPerPoint < 1 || samplesPerPoint > 65536 ||
+          !Number.isInteger(pointsPerMessage) || pointsPerMessage < 1 || pointsPerMessage > 1024) {
+        throw new RangeError('Invalid output envelope sample or message size');
+      }
+      this.envelopeBucketSize = samplesPerPoint;
+      this.envelopeMessageSize = pointsPerMessage;
+      this.envelopeRmsBuckets = new Float32Array(pointsPerMessage);
+      this.envelopeEnabled = command.enabled === true;
+      this.envelopeOffset = this.envelopeFrames = this.envelopeSum = 0;
+      return;
+    }
+    if (command.type === 'pcm-dac' || command.type === 'reset') this.performanceDacOwner = null;
+    if (receiveDacCommand(this.pcmDac, command, commandFrame, reply)) return;
     if (command.type === "schedule-writes") {
       // Compact only when new work arrives, not once per audio event.
       if (this.scheduledHead) {
@@ -287,11 +390,16 @@ class YM2612Processor extends AudioWorkletProcessor {
         ? Math.round(scheduled.time * sampleRate)
         : Infinity;
       const dacFrame = this.nextDacFrame();
-      const frame = Math.min(scheduledFrame, dacFrame, this.pcmDac.nextFrame());
+      const performanceFrame = this.performanceQueue.nextFrame();
+      const frame = Math.min(scheduledFrame, dacFrame, this.pcmDac.nextFrame(), performanceFrame);
       if (frame >= endFrame) break;
       const eventOffset = Math.max(offset, frame - currentFrame);
       this.renderFrames(leftOut, rightOut, offset, eventOffset - offset);
       offset = eventOffset;
+      if (performanceFrame === frame) {
+        this.performanceQueue.advance(currentFrame + offset);
+        continue;
+      }
       if (scheduledFrame === frame) {
         this.scheduledCommands[this.scheduledHead++] = null;
         if (this.scheduledHead === this.scheduledCommands.length) {
@@ -310,6 +418,7 @@ class YM2612Processor extends AudioWorkletProcessor {
       this.pcmDac.advance(frame);
     }
     this.renderFrames(leftOut, rightOut, offset, leftOut.length - offset);
+    this.flushMixerMeters(leftOut.length);
     this.capturePcm(leftOut, rightOut);
     this.captureOutputEnvelope(
       leftOut,
@@ -375,13 +484,18 @@ class YM2612Processor extends AudioWorkletProcessor {
 
   renderFrames(leftOut, rightOut, offset, frames) {
     if (frames <= 0) return;
-    const chipRate = this.ym2612.sampleRate();
+    const chipRate = this.ym2612.sampleRate(this.clock);
+    const psgRate = this.ym2612.sampleRate();
+    this.psgRemainder ??= 0;
+    this.psgLeft ??= 0; this.psgRight ??= 0;
+    const psgFrames = Math.floor((this.psgRemainder + frames * psgRate) / sampleRate);
     const sourceFrames = Math.floor((this.resampleRemainder + frames * chipRate) / sampleRate);
     const pcm = sourceFrames > 0 ? this.ym2612.generateStereoView(sourceFrames) : null;
-    const psg = sourceFrames > 0 ? this.psg?.generateStereoView(sourceFrames) : null;
-    let sourceOffset = 0;
+    const psg = psgFrames > 0 ? this.psg?.generateStereoView(psgFrames) : null;
+    let sourceOffset = 0, psgOffset = 0;
     for (let i = 0; i < frames; i++) {
-      for (const name of MIX_SOURCES) {
+      for (let source = 0; source < MIX_SOURCES.length; source++) {
+        const name = MIX_SOURCES[source];
         if (this.mixRemaining[name] > 0) {
           for (let c = 0; c < 2; c++) this.mixCurrent[name][c] += (this.mixTargets[name][c] - this.mixCurrent[name][c]) / this.mixRemaining[name];
           this.mixRemaining[name]--;
@@ -389,6 +503,14 @@ class YM2612Processor extends AudioWorkletProcessor {
       }
       const fmGains = this.mixCurrent.ym2612;
       const psgGains = this.mixCurrent.segapsg;
+      this.psgRemainder += psgRate;
+      const psgCount = Math.floor(this.psgRemainder / sampleRate);
+      this.psgRemainder -= psgCount * sampleRate;
+      if (psg && psgCount) {
+        let l = 0, r = 0;
+        for (let j = 0; j < psgCount; j++, psgOffset++) { l += psg.left[psgOffset]; r += psg.right[psgOffset]; }
+        this.psgLeft = l / psgCount; this.psgRight = r / psgCount;
+      }
       this.resampleRemainder += chipRate;
       const count = Math.floor(this.resampleRemainder / sampleRate);
       this.resampleRemainder -= count * sampleRate;
@@ -397,90 +519,60 @@ class YM2612Processor extends AudioWorkletProcessor {
         for (let j = 0; j < count; j++, sourceOffset++) {
           const fmLeft = (pcm.left[sourceOffset] - this.idleLeft) * fmGains[0];
           const fmRight = (pcm.right[sourceOffset] - this.idleRight) * fmGains[1];
-          left += psg ? clampSample(fmLeft * YM_GAIN + psg.left[sourceOffset] * PSG_GAIN * psgGains[0]) : fmLeft;
-          right += psg ? clampSample(fmRight * YM_GAIN + psg.right[sourceOffset] * PSG_GAIN * psgGains[1]) : fmRight;
+          left += fmLeft;
+          right += fmRight;
         }
         this.lastLeft = left / count;
         this.lastRight = right / count;
       }
+      if (this.mixMeterEnabled.ym2612) {
+        const gain = this.psg ? YM_GAIN : 1;
+        this.mixMeterPeaks[0] = Math.max(this.mixMeterPeaks[0], Math.abs(this.lastLeft * gain));
+        this.mixMeterPeaks[1] = Math.max(this.mixMeterPeaks[1], Math.abs(this.lastRight * gain));
+      }
+      if (this.mixMeterEnabled.segapsg && this.psg) {
+        this.mixMeterPeaks[2] = Math.max(this.mixMeterPeaks[2], Math.abs(this.psgLeft * PSG_GAIN * psgGains[0]));
+        this.mixMeterPeaks[3] = Math.max(this.mixMeterPeaks[3], Math.abs(this.psgRight * PSG_GAIN * psgGains[1]));
+      }
       // Hold the previous sample during upsampling. Preserve phase across
       // render segments so scheduled writes stay on the output timeline.
-      leftOut[offset + i] = this.lastLeft;
-      rightOut[offset + i] = this.lastRight;
+      leftOut[offset + i] = this.psg ? clampSample(this.lastLeft * YM_GAIN + this.psgLeft * PSG_GAIN * psgGains[0]) : this.lastLeft;
+      rightOut[offset + i] = this.psg ? clampSample(this.lastRight * YM_GAIN + this.psgRight * PSG_GAIN * psgGains[1]) : this.lastRight;
     }
   }
 
+  flushMixerMeters(frames) {
+    if (!this.mixMeterEnabled.ym2612 && !this.mixMeterEnabled.segapsg) return;
+    this.mixMeterFrames += frames;
+    if (this.mixMeterFrames < sampleRate / 15) return;
+    this.mixMeterFrames = 0;
+    const entries = [];
+    for (let i = 0; i < MIX_SOURCES.length; i++) {
+      const name = MIX_SOURCES[i];
+      if (this.mixMeterEnabled[name]) entries.push({id: name, left: this.mixMeterPeaks[i * 2], right: this.mixMeterPeaks[i * 2 + 1]});
+    }
+    this.port.postMessage({type: 'mixer-peaks', entries});
+    this.mixMeterPeaks.fill(0);
+  }
+
   captureOutputEnvelope(left, right) {
-    const frames =
-      Math.min(
-        left.length,
-        right.length
-      );
-
-    for (
-      let start = 0;
-      start < frames;
-      start +=
-        this.envelopeBucketSize
-    ) {
-      const end = Math.min(
-        frames,
-        start +
-          this.envelopeBucketSize
-      );
-      let sum = 0;
-
-      for (
-        let index = start;
-        index < end;
-        index += 1
-      ) {
-        const mixed =
-          (left[index] +
-            right[index]) *
-          0.5;
-        sum += mixed * mixed;
+    // The Playground analyses the final output with an AnalyserNode. Avoid
+    // unsolicited worklet -> UI traffic; raw chip monitoring opts in explicitly.
+    if (!this.envelopeEnabled) return;
+    const frames = Math.min(left.length, right.length);
+    for (let i = 0; i < frames; i++) {
+      const mixed = (left[i] + right[i]) * 0.5;
+      this.envelopeSum += mixed * mixed;
+      if (++this.envelopeFrames !== this.envelopeBucketSize) continue;
+      this.envelopeRmsBuckets[this.envelopeOffset++] =
+        Math.sqrt(this.envelopeSum / this.envelopeFrames);
+      this.envelopeFrames = this.envelopeSum = 0;
+      if (this.envelopeOffset === this.envelopeMessageSize) {
+        const rmsValues = this.envelopeRmsBuckets;
+        this.port.postMessage({type: 'output-envelope', rmsValues}, [rmsValues.buffer]);
+        this.envelopeRmsBuckets = new Float32Array(this.envelopeMessageSize);
+        this.envelopeOffset = 0;
       }
-
-      const rms = Math.sqrt(
-        sum /
-          Math.max(
-            1,
-            end - start
-          )
-      );
-      this.envelopeRmsBuckets.push(rms);
-    }
-
-    if (
-      this.envelopeRmsBuckets.length >=
-      this.envelopeMessageSize
-    ) {
-      const rmsValues =
-        new Float32Array(
-          this.envelopeRmsBuckets.splice(
-            0,
-            this.envelopeMessageSize
-          )
-        );
-
-      this.port.postMessage(
-        {
-          type: "output-envelope",
-          rmsValues,
-        },
-        [rmsValues.buffer]
-      );
-    }
-
-    while (
-      this.envelopeRmsBuckets.length >
-      this.envelopeMessageSize * 8
-    ) {
-      this.envelopeRmsBuckets.splice(
-        0,
-        this.envelopeMessageSize
-      );
     }
   }
 
