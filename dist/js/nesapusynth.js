@@ -1,8 +1,9 @@
 import {noteToHz as frequency} from './soundchip_pitch.js';
-import {NES_APU_CLOCK,validateNesApuClock} from './nesapu.js';
-import {ChipWorkletTransport} from './chip_worklet_transport.js';
+import {NES_APU_CLOCK,validateNesApuClock} from './nesapu.js?v=nes-wasm-1';
+import {ChipWorkletTransport} from './chip_worklet_transport.js?v=audio-numeric-bindings-1';
 /** @typedef {{writeRegister(address:number,value:number):void, reset?:()=>void,
  * setChannelEnabled?:(channel:number,enabled:boolean)=>void,
+ * configureFds?:(gain:number,master:number)=>void,
  * loadMemory?:(bytes:Uint8Array,address:number)=>void|Promise<unknown>, clock?:number, fdsEnabled?:boolean}} NesApuTransport
  * @typedef {{volume?:number, duty?:0.125|0.25|0.5|0.75, envelope?:{period:number,loop?:boolean}, sweep?:{enabled?:boolean,period?:number,negate?:boolean,shift?:number}}} NesPulseVoice
  */
@@ -13,7 +14,7 @@ function table(values,length,max,label){
 }
 /** Owns no chip or audio device. */
 export class NesApuDirectTransport {
- /** @param {import('./nesapu.js').NesApu} chip */
+ /** @param {import('./nesapu.js?v=nes-wasm-1').NesApu | import('./nesapu_wasm.js?v=nes-wasm-1').NesApuWasm} chip */
  constructor(chip){this.chip=chip;this.clock=chip.clock;this.fdsEnabled=chip.fdsEnabled;}
  /** @param {number} address @param {number} value */
  writeRegister(address,value){this.chip.writeRegister(address,value);}
@@ -27,7 +28,7 @@ export class NesApuDirectTransport {
  generateStereo(frames){return this.chip.generateStereo(frames);}
 }
 export class NesApuWorkletTransport extends ChipWorkletTransport {
- /** @param {import('./soundchip_worklet.js?v=chip-tabs-2').WorkletSoundChip | MessagePort} endpoint */
+ /** @param {import('./soundchip_worklet.js?v=y8950-adpcm-ui-1').WorkletSoundChip | MessagePort} endpoint */
  constructor(endpoint){super(endpoint);this.clock=this.endpoint?.clock??NES_APU_CLOCK;this.fdsEnabled=this.endpoint?.fdsEnabled??false;}
  /** @param {number} channel @param {boolean} enabled */
  setChannelEnabled(channel,enabled){this.send('setChannelEnabled',[channel,enabled]);}
@@ -43,8 +44,8 @@ export class NesApuSynth {
  #fdsMaster=0;
  #generation=0;
  /** @type {{address:number,length:number}|null} */ #sample=null;
- /** @param {{transport:NesApuTransport, clock?:number, fds?:boolean}} options */
- constructor({transport,clock=transport?.clock??NES_APU_CLOCK,fds=transport?.fdsEnabled??false}={}){
+ /** @param {{transport:NesApuTransport, clock?:number, fds?:boolean, initialize?:boolean}} options */
+ constructor({transport,clock=transport?.clock??NES_APU_CLOCK,fds=transport?.fdsEnabled??false,initialize=true}={}){
   if(!transport?.writeRegister)throw new TypeError('NesApuSynth requires writeRegister(address,value)');
   validateNesApuClock(clock);
   this.transport=transport;this.clock=clock;this.fdsEnabled=fds;
@@ -111,7 +112,7 @@ export class NesApuSynth {
     wave.forEach((value,i)=>this.writeRegister(0x4040+i,value));this.writeRegister(0x4089,master);this.writeRegister(0x4083,control);
    },
    /** @param {number} volume Fixed gain 0..32. @param {number} [master] Hardware scale 0..3. */
-   setVolume:(volume,master=0)=>{this.#checkFds();integer(volume,32,'FDS volume');integer(master,3,'FDS master scale');this.#fdsGain=volume;this.#fdsMaster=master;this.writeRegister(0x4023,2);this.writeRegister(0x4080,128|(this.#fdsActive?volume:0));this.writeRegister(0x4089,master);},
+   setVolume:(volume,master=0)=>{this.#checkFds();integer(volume,32,'FDS volume');integer(master,3,'FDS master scale');this.#fdsGain=volume;this.#fdsMaster=master;this.writeRegister(0x4023,2);this.writeRegister(0x4080,128|(this.#fdsActive?volume:0));this.writeRegister(0x4089,master);this.transport.configureFds?.(volume,master);},
    /** @param {number} hz */ setFrequency:hz=>this.setFrequency(5,hz),
    keyOn:()=>this.keyOn(5),keyOff:()=>this.keyOff(5),
    /** @param {string|number} note */ setNote:note=>this.setNote(5,note),
@@ -124,8 +125,10 @@ export class NesApuSynth {
     this.writeRegister(0x4085,bias&127);this.writeRegister(0x4084,128|depth);this.writeRegister(0x4086,rate&255);this.writeRegister(0x4087,(enabled?0:128)|(rate>>8));
    },
   };
-  this.reset();
+  if(initialize)this.reset();
  }
+ _getState(){return {clock:this.clock,registers:Array.from(this.#registers),enabled:this.#enabled,fdsActive:this.#fdsActive,fdsGain:this.#fdsGain,fdsMaster:this.#fdsMaster,sample:this.#sample&&{...this.#sample}};}
+ _adoptState(state){if(!state)return;if(state.clock!==undefined){if(this._adoptClock)this._adoptClock(state.clock);else this.clock=state.clock;}if(state.registers)this.#registers.set(state.registers);this.#enabled=state.enabled??0;this.#fdsActive=!!state.fdsActive;this.#fdsGain=state.fdsGain??32;this.#fdsMaster=state.fdsMaster??0;this.#sample=state.sample?{...state.sample}:null;}
  #checkFds(){if(!this.fdsEnabled)throw new Error('FDS requires createSoundChip(nes, {fds:true})');}
  /** @param {number} address @param {number} value */
  writeRegister(address,value){if(!((address>=0x4000&&address<=0x4017)||address===0x4023||(address>=0x4040&&address<=0x408a)))throw new RangeError('Unsupported NES address');if(address>=0x4023)this.#checkFds();integer(address-0x4000,0x8a,'NES address offset');integer(value,255,'NES register value');this.transport.writeRegister(address,value);this.#registers[address-0x4000]=value;if(address===0x4015)this.#enabled=value&31;if(address===0x4083)this.#fdsActive=!(value&128);}

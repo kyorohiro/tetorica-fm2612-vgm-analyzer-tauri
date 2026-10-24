@@ -1,13 +1,14 @@
-import {allocateSoundChipId} from './soundchip_mixer.js?v=chip-tabs-2';
-export {SoundChipMixer, soundChipMixDefaults} from './soundchip_mixer.js?v=chip-tabs-2';
+import {allocateSoundChipId} from './soundchip_mixer.js?v=y8950-adpcm-ui-1';
+export {SoundChipMixer, soundChipMixDefaults} from './soundchip_mixer.js?v=y8950-adpcm-ui-1';
+export {SOUNDCHIP_MIXER_PRESETS} from './soundchip_mixer_presets.js';
 /**
  * @file Browser / Node.js の便利なチップ生成入口。DOM・AudioContext は不要。
  * 選択した WASM だけを読み込む。最小配布には soundchip_factory.js を使うこと。
  * 動的 import の配布方法はバンドラーに依存するため、この入口はサイズ削減を保証しない。
  */
 import { createSoundChipFactory } from './soundchip_factory.js';
-import {createWorkletSoundChip} from './soundchip_worklet.js?v=chip-tabs-2';
-import {PWM32X} from './pwm32x.js';
+import {createWorkletSoundChip} from './soundchip_worklet.js?v=y8950-adpcm-ui-1';
+import {PWM32X} from './pwm32x.js?v=pwm-wasm-1';
 export {encodeWav} from './wav.js';
 
 /**
@@ -37,7 +38,7 @@ export {encodeWav} from './wav.js';
  * @property {URL|string} [assetBaseUrl] 生成済み *_wasm.js / .wasm のディレクトリURL（末尾 /）。
  * @property {WasmModuleFactory} [moduleFactory] 注入する Emscripten factory。指定時は自動ロードを省略。
  * @property {WasmModuleOptions} [moduleOptions] wasmBinary、locateFile などをそのまま渡す。
- * @property {import('./soundchip_mixer.js?v=chip-tabs-2').SoundChipMixer} [mixer] Worklet output mixer.
+ * @property {import('./soundchip_mixer.js?v=y8950-adpcm-ui-1').SoundChipMixer} [mixer] Worklet output mixer.
  * @property {string} [id] Stable chip ID (automatically allocated when omitted).
  * @property {AbortSignal} [signal] WASM ファイルの読み込みを中断する。
  * @property {'direct'|'worklet'} [execution='direct'] チップの実行場所。worklet はブラウザーのみ。
@@ -49,6 +50,7 @@ export {encodeWav} from './wav.js';
  * @property {number} [flags] Chip-specific flags.
  * @property {boolean|'ym2151'|'ym2164'} [variant] Chip variant selection.
  * @property {'dac'|'duty'} [outputMode] PWM amplitude scaling.
+ * @property {'wasm'|'js'} [implementation='wasm'] PWM core; JS is an explicit reference fallback.
  * @property {AudioNode} [outputNode] Browser output destination.
  * @property {number} [gain=0.25] Worklet endpoint の出力音量。
  */
@@ -80,56 +82,56 @@ async function loadModule(name, options = {}) {
 const loaders = {
   nes: async options => {
     options.signal?.throwIfAborted();
-    const {NesApu} = await import('./nesapu.js');
+    const {NesApu} = await import('./nesapu.js?v=nes-wasm-1');
     options.signal?.throwIfAborted();
     return NesApu.create(options);
   },
   gameboy: async (options) => {
-    const {GameboyApu} = await import('./gameboyapu.js');
+    const {GameboyApu} = await import('./gameboyapu.js?v=audio-stability-2');
     return GameboyApu.create(await loadModule('gameboy_apu', options));
   },
   segapsg: async (options) => {
-    const {SegaPSG} = await import('./segapsg.js');
+    const {SegaPSG} = await import('./segapsg.js?v=audio-numeric-bindings-1');
     return SegaPSG.create(await loadModule('segapsg', options));
   },
   /** @param {SoundChipOptions} [options] */
   ay8910: async (options) => {
-    const { Ay8910 } = await import('./ay8910.js');
+    const { Ay8910 } = await import('./ay8910.js?v=audio-stability-2');
     return Ay8910.create(await loadModule('ay8910', options));
   },
   /** @param {SoundChipOptions} [options] */
   y8950: async (options) => {
-    const { Y8950 } = await import('./y8950.js');
+    const { Y8950 } = await import('./y8950.js?v=audio-stability-2');
     return Y8950.create(await loadModule('y8950', options));
   },
   /** @param {SoundChipOptions} [options] */
   ym2151: async (options) => {
-    const { Ym2151 } = await import('./ym2151.js');
+    const { Ym2151 } = await import('./ym2151.js?v=audio-stability-2');
     return Ym2151.create(await loadModule('ym2151', options));
   },
   /** @param {SoundChipOptions} [options] */
   ym2203: async (options) => {
-    const { Ym2203 } = await import('./ym2203.js');
+    const { Ym2203 } = await import('./ym2203.js?v=audio-stability-2');
     return Ym2203.create(await loadModule('ym2203', options));
   },
   /** @param {SoundChipOptions} [options] */
   ym2413: async (options) => {
-    const { Ym2413 } = await import('./ym2413.js');
+    const { Ym2413 } = await import('./ym2413.js?v=audio-stability-2');
     return Ym2413.create(await loadModule('ym2413', options));
   },
   /** @param {SoundChipOptions} [options] */
   ym2608: async (options) => {
-    const { Ym2608 } = await import('./ym2608.js');
+    const { Ym2608 } = await import('./ym2608.js?v=audio-stability-2');
     return Ym2608.create(await loadModule('ym2608', options));
   },
   /** @param {SoundChipOptions} [options] */
   ym2610b: async (options) => {
-    const { Ym2610B } = await import('./ym2610b.js');
+    const { Ym2610B } = await import('./ym2610b.js?v=audio-stability-2');
     return Ym2610B.create(await loadModule('ym2610b', options));
   },
   /** @param {SoundChipOptions} [options] */
   ym2612: async (options) => {
-    const { Ym2612 } = await import('./ym2612.js');
+    const { Ym2612 } = await import('./ym2612.js?v=audio-numeric-bindings-1');
     return Ym2612.create(await loadModule('ym2612', options));
   },
   /** @param {SoundChipOptions} [options] */
@@ -139,17 +141,17 @@ const loaders = {
   },
   /** @param {SoundChipOptions} [options] */
   ym3526: async (options) => {
-    const { Ym3526 } = await import('./ym3526.js');
+    const { Ym3526 } = await import('./ym3526.js?v=audio-stability-2');
     return Ym3526.create(await loadModule('ym3526', options));
   },
   /** @param {SoundChipOptions} [options] */
   ym3812: async (options) => {
-    const { Ym3812 } = await import('./ym3812.js');
+    const { Ym3812 } = await import('./ym3812.js?v=audio-stability-2');
     return Ym3812.create(await loadModule('ym3812', options));
   },
   /** @param {SoundChipOptions} [options] */
   ymf262: async (options) => {
-    const { Ymf262 } = await import('./ymf262.js');
+    const { Ymf262 } = await import('./ymf262.js?v=audio-stability-2');
     return Ymf262.create(await loadModule('ymf262', options));
   },
   /** @param {SoundChipOptions} [options] */
@@ -159,7 +161,7 @@ const loaders = {
   },
   /** @param {SoundChipOptions} [options] */
   ymf278b: async (options) => {
-    const { Ymf278b } = await import('./ymf278b.js');
+    const { Ymf278b } = await import('./ymf278b.js?v=audio-stability-2');
     return Ymf278b.create(await loadModule('ymf278b', options));
   },
   /** @param {SoundChipOptions} [options] */
@@ -179,33 +181,33 @@ const loaders = {
  */
 const createLocalSoundChip = createSoundChipFactory(loaders);
 /** @typedef {{
- *   gameboy: import('./gameboyapu.js').GameboyApu,
- *   segapsg: import('./segapsg.js').SegaPSG,
- *   pwm: import('./pwm32x.js').PWM32X,
- *   nes: import('./nesapu.js').NesApu,
- *   ay8910: import('./ay8910.js').Ay8910,
- *   y8950: import('./y8950.js').Y8950,
- *   ym2610b: import('./ym2610b.js').Ym2610B,
- *   ym2151: import('./ym2151.js').Ym2151,
- *   ym2203: import('./ym2203.js').Ym2203,
- *   ym2413: import('./ym2413.js').Ym2413,
- *   ym2608: import('./ym2608.js').Ym2608,
- *   ym2612: import('./ym2612.js').Ym2612,
+ *   gameboy: import('./gameboyapu.js?v=audio-stability-2').GameboyApu,
+ *   segapsg: import('./segapsg.js?v=audio-numeric-bindings-1').SegaPSG,
+ *   pwm: import('./pwm32x.js?v=pwm-wasm-1').PWM32X | import('./pwm32x_wasm.js?v=pwm-wasm-1').PWM32XWasm,
+ *   nes: import('./nesapu_wasm.js?v=nes-wasm-1').NesApuWasm,
+ *   ay8910: import('./ay8910.js?v=audio-stability-2').Ay8910,
+ *   y8950: import('./y8950.js?v=audio-stability-2').Y8950,
+ *   ym2610b: import('./ym2610b.js?v=audio-stability-2').Ym2610B,
+ *   ym2151: import('./ym2151.js?v=audio-stability-2').Ym2151,
+ *   ym2203: import('./ym2203.js?v=audio-stability-2').Ym2203,
+ *   ym2413: import('./ym2413.js?v=audio-stability-2').Ym2413,
+ *   ym2608: import('./ym2608.js?v=audio-stability-2').Ym2608,
+ *   ym2612: import('./ym2612.js?v=audio-numeric-bindings-1').Ym2612,
  *   ym3438: import('./ym3438.js').Ym3438,
- *   ym3526: import('./ym3526.js').Ym3526,
- *   ym3812: import('./ym3812.js').Ym3812,
- *   ymf262: import('./ymf262.js').Ymf262,
+ *   ym3526: import('./ym3526.js?v=audio-stability-2').Ym3526,
+ *   ym3812: import('./ym3812.js?v=audio-stability-2').Ym3812,
+ *   ymf262: import('./ymf262.js?v=audio-stability-2').Ymf262,
  *   ymf276: import('./ymf276.js').Ymf276,
- *   ymf278b: import('./ymf278b.js').Ymf278b,
+ *   ymf278b: import('./ymf278b.js?v=audio-stability-2').Ymf278b,
  *   ymf288: import('./ymf288.js').Ymf288,
  * }} SoundChipMap */
-/** @typedef {'ym2612'|'ym2608'|'ym2151'|'gameboy'|'segapsg'|'pwm'|'nes'} WorkletChipName */
+/** @typedef {'ym2612'|'ym2608'|'ym2151'|'gameboy'|'segapsg'|'pwm'|'nes'|'ym3526'|'ym3812'|'y8950'|'ymf262'|'ym2413'|'ay8910'} WorkletChipName */
 /**
  * @template {WorkletChipName} Name
  * @overload
  * @param {Name} name
  * @param {SoundChipOptions & {execution: 'worklet'}} options
- * @returns {Promise<import('./soundchip_worklet.js?v=chip-tabs-2').WorkletSoundChip & {name: Name}>}
+ * @returns {Promise<import('./soundchip_worklet.js?v=y8950-adpcm-ui-1').WorkletSoundChip & {name: Name}>}
  */
 /**
  * @template {keyof SoundChipMap} Name
@@ -219,16 +221,16 @@ const createLocalSoundChip = createSoundChipFactory(loaders);
  * @overload
  * @param {Name} name
  * @param {SoundChipOptions} options
- * @returns {Promise<(SoundChipMap[Name] & {readonly id: string}) | import('./soundchip_worklet.js?v=chip-tabs-2').WorkletSoundChip>}
+ * @returns {Promise<(SoundChipMap[Name] & {readonly id: string}) | import('./soundchip_worklet.js?v=y8950-adpcm-ui-1').WorkletSoundChip>}
  */
 /** @param {keyof SoundChipMap} name @param {SoundChipOptions} [options] */
 export function createSoundChip(name, options = {}) {
   if (options.mixer && options.execution !== 'worklet') return Promise.reject(new Error('An output mixer requires execution: worklet; direct chips generate raw PCM'));
   if (options.execution === 'worklet') {
     if (options.moduleFactory) return Promise.reject(new Error('Worklet execution uses the packaged chip factory'));
-    const moduleName = name === 'gameboy' ? 'gameboy_apu' : name;
+    const moduleName = name === 'gameboy' ? 'gameboy_apu' : name==='nes'?'nesapu':name==='pwm'?'pwm32x':name;
     return createWorkletSoundChip(name, options, async () => {
-      if (name === 'pwm' || name === 'nes') return undefined;
+      if (name === 'pwm' && options.implementation === 'js') return undefined;
       const loaded = await loadModule(moduleName, options);
       const bytes = loaded.moduleOptions.wasmBinary;
       if (!bytes) throw new Error('Worklet execution requires WASM bytes; use wasmBinary or default asset loading');
@@ -238,7 +240,7 @@ export function createSoundChip(name, options = {}) {
   if (options.execution !== undefined && options.execution !== 'direct') return Promise.reject(new Error('Unknown sound-chip execution mode'));
   let id;
   try {id = allocateSoundChipId(name, options.id);} catch (error) {return Promise.reject(error);}
-  const pending = name === 'pwm' ? Promise.resolve().then(() => {options.signal?.throwIfAborted(); return new PWM32X(options);}) : createLocalSoundChip(name, options);
+  const pending = name === 'pwm' ? PWM32X.create(options) : createLocalSoundChip(name, options);
   return pending.then(chip => {
     Object.defineProperty(chip, 'id', {value: id, enumerable: true});
     return chip;

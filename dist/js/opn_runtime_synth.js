@@ -1,0 +1,298 @@
+/**
+ * @file opn_runtime_synth.js
+ * 実行環境: Browser（メインスレッド）
+ * 依存: 音声初期化・再生時に AudioContext / AudioWorkletNode と WASM アセットが必要。
+ * import だけでは音声デバイスを開かない。アセット読み込みには fetch を使用する。
+ */
+import { TetoricaAudioRuntime } from "./tetorica_audio_runtime.js?v=y8950-adpcm-ui-1";
+import { OPNWorkletTransport } from "./opn_fm_synth.js?v=audio-stability-2";
+
+/** @typedef {Pick<import('./megasynth.js?v=y8950-adpcm-ui-1').MegaSynthOptions,'audioContext'|'outputNode'|'sampleOutputNode'|'masterVolume'|'mixer'|'workletUrl'> & {wasmUrl?:string,rhythmRom?:Uint8Array,rhythmRomUrl?:string}} OPNRuntimeSynthOptions */
+
+const MAX_MASTER_VOLUME = 3.8;
+
+/**
+ * Browser lifecycle wrapper for an OPN FM synth. Chip-specific subclasses
+ * provide their worklet protocol and high-level FM constructor.
+ */
+export class OPNRuntimeSynth {
+  /** @param {OPNRuntimeSynthOptions|undefined} options */
+  constructor(options = {}, config) {
+    this.chip = config.chip;
+    this.capabilities = Object.freeze({
+      chip: config.chip,
+      fmChannels: config.fmChannels,
+      psg: false,
+      dac: false,
+      recorder: false,
+    });
+    this.audio = new TetoricaAudioRuntime({
+      audioContext: options.audioContext,
+      outputNode: options.outputNode,
+      sampleOutputNode: options.sampleOutputNode,
+      masterVolume: clampMasterVolume(options.masterVolume ?? 1),
+      mixer: options.mixer,
+    });
+    this.workletUrl = options.workletUrl ?? config.workletUrl;
+    this.wasmUrl = options.wasmUrl ?? config.wasmUrl;
+    this.processorName = config.processorName;
+    this.chipName = config.chipName;
+    this.portCount = config.portCount;
+    this.FMSynth = config.FMSynth;
+    this.rhythmRom = options.rhythmRom;
+    this.rhythmRomUrl = options.rhythmRomUrl ?? config.rhythmRomUrl;
+    this.mixerRelease = null;
+    this.node = null;
+    this.fm = null;
+    this.psg = null;
+    this.listeners = new Set();
+    this.readyPromise = null;
+    this.closePromise = null;
+    this.initializationController = null;
+    this.state = "idle";
+
+    this.audio.setMediaApis(
+      this.audio.createSampleApi({
+        createAudioContext: () => this.#createAudioContext(),
+      }),
+      this.audio.createStreamApi({
+        createAudioContext: () => this.#createAudioContext(),
+        resume: () => this.resume(),
+      })
+    );
+    this.noise = this.audio.createNoiseApi();
+  }
+
+  /** @returns {import('./soundchip_mixer.js?v=y8950-adpcm-ui-1').SoundChipMixer} */
+  get mixer() { return this.audio.mixer; }
+  get audioContext() { return this.audio.audioContext; }
+  set audioContext(value) { this.audio.audioContext = value; }
+  get ownsAudioContext() { return this.audio.ownsAudioContext; }
+  get sample() { return this.audio.sample; }
+  get stream() { return this.audio.stream; }
+
+  async start() {
+    if (this.closePromise) await this.closePromise;
+    if (!this.readyPromise) {
+      const controller = new AbortController();
+      this.initializationController = controller;
+      this.state = "starting";
+      this.readyPromise = (async () => {
+        try {
+          await this.#initialize(controller.signal);
+          controller.signal.throwIfAborted();
+          this.state = "ready";
+        } catch (error) {
+          if (this.initializationController === controller) {
+            controller.abort();
+            this.mixerRelease?.(); this.mixerRelease = null;
+            this.node?.disconnect();
+            this.node?.port.close();
+            this.node = null;
+            this.fm = null;
+            this.readyPromise = null;
+            this.state = "error";
+          }
+          throw error;
+        }
+      })();
+    }
+    const signal = this.initializationController.signal;
+    await this.readyPromise;
+    signal.throwIfAborted();
+    await waitForInitialization(this.resume(), signal);
+    return this;
+  }
+
+  async resume() {
+    if (this.audioContext?.state !== "running") await this.audioContext?.resume();
+  }
+
+  async suspend() {
+    if (this.audioContext?.state === "running") await this.audioContext.suspend();
+  }
+
+  reset() { this.fm?.reset(); }
+  isReady() { return this.state === "ready" && !!this.fm; }
+  isStarting() { return this.state === "starting"; }
+  addListener(listener) {
+    if (typeof listener !== "function") throw new Error("listener must be a function");
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  removeListener(listener) { this.listeners.delete(listener); }
+  /** @param {number} volume */
+  setMasterVolume(volume) { return this.audio.setMasterVolume(clampMasterVolume(volume)); }
+  getMasterVolume() { return this.audio.masterVolume; }
+  setFXChain(effects = [], options = {}) { return this.audio.setFXChain(effects, options); }
+  getFXChain() { return this.audio.getFXChain(); }
+  clearFXChain(options = {}) { return this.audio.clearFXChain(options); }
+  connect(effect) { this.audio.connect(effect); return this; }
+  connectOutput(node = null) { this.audio.connectOutput(node); return this; }
+
+  close() {
+    if (this.closePromise) return this.closePromise;
+    this.initializationController?.abort();
+    this.initializationController = null;
+    this.readyPromise = null;
+    const closing = this.#close();
+    this.closePromise = closing;
+    closing.finally(() => {
+      if (this.closePromise === closing) this.closePromise = null;
+    }).catch(() => {});
+    return closing;
+  }
+
+  async #close() {
+    this.audio.closeMedia();
+    this.audio.disposeFXChain();
+    this.mixerRelease?.(); this.mixerRelease = null;
+    this.fm?.transport.dispose?.();
+    this.node?.disconnect();
+    this.node?.port.close();
+    this.node = null;
+    this.audio.disconnectRouting();
+    this.audio.masterInputNode = null;
+    this.audio.masterOutputNode = null;
+    this.fm = null;
+    this.readyPromise = null;
+    this.state = "closed";
+    if (this.audioContext && this.ownsAudioContext) {
+      await this.audioContext.close();
+      this.audioContext = null;
+    }
+  }
+
+  #createAudioContext() { return new AudioContext(); }
+
+  async #initialize(signal) {
+    if (!this.audioContext) this.audioContext = this.#createAudioContext();
+    if (this.audioContext.state !== "running") await waitForInitialization(this.audioContext.resume(), signal);
+    await waitForInitialization(this.audioContext.audioWorklet.addModule(this.workletUrl), signal);
+    const response = await waitForInitialization(fetch(this.wasmUrl, { signal }), signal);
+    if (!response.ok) throw new Error(`Failed to load ${this.chipName} WASM: ${response.status} ${response.statusText}`);
+    const wasmBinary = await waitForInitialization(response.arrayBuffer(), signal);
+    let rhythmRom = this.rhythmRom;
+    if (this.chip === 'ym2608') {
+      if (rhythmRom === undefined) {
+        const romResponse = await waitForInitialization(fetch(this.rhythmRomUrl, {signal}), signal);
+        if (!romResponse.ok) throw new Error(`Failed to load YM2608 rhythm ROM: ${romResponse.status}`);
+        rhythmRom = new Uint8Array(await waitForInitialization(romResponse.arrayBuffer(), signal));
+      }
+      if (!(rhythmRom instanceof Uint8Array) || rhythmRom.length !== 8192) throw new RangeError('YM2608 rhythmRom must be 8192 bytes');
+    }
+    this.node = new AudioWorkletNode(this.audioContext, this.processorName, {
+      numberOfInputs: 0,
+      numberOfOutputs: 1,
+      outputChannelCount: [2],
+    });
+    this.audio.ensureRouting(this.audioContext);
+    this.mixerRelease = this.mixer.connect(this.chip, this.chip, this.node, this.audio.masterInputNode, this.audioContext);
+    const ready = this.#waitForWorkletReady(this.node, signal);
+    ready.catch(() => {});
+    this.node.port.postMessage({ type: "initialize", wasmBinary, rhythmRom,
+      ...(['ym2610','ym2610b'].includes(this.chip) ? {variant:this.chip==='ym2610b'} : {}),
+    }, [wasmBinary]);
+    await ready;
+    signal.throwIfAborted();
+    this.fm = new this.FMSynth({
+      transport: new OPNWorkletTransport(this.node, {
+        portCount: this.portCount,
+        chipName: this.chipName,
+      }),
+    });
+    Object.defineProperty(this.fm, 'id', {value: this.chip, enumerable: true});
+    this.#installFmEvents();
+  }
+
+  #installFmEvents() {
+    const fm = this.fm;
+    // Match MegaSynth's completed high-level events. Section helpers use the
+    // parent write() method, so their state also participates in Worker handoff.
+    const events = {
+      reset: () => ({type:'reset'}),
+      setPreset: (channel,preset) => ({type:'setPreset',channel,preset}),
+      setOperator: (channel,operator,params) => ({type:'setOperator',channel,operator,params}),
+      setAlgo: (channel,algorithm,feedback=0) => ({type:'setAlgo',channel,algorithm,feedback}),
+      setLfo: (enabled,frequency) => ({type:'setLfo',enabled,frequency}),
+      setPan: (channel,left,right,ams,pms) => ({type:'setPan',channel,left,right,ams,pms}),
+      setModulation: channel => {
+        const {left,right,ams,pms} = fm.channels[channel];
+        return {type:'setPan',channel,left,right,ams,pms};
+      },
+      setChannel3SpecialMode: enabled => ({type:'setChannel3SpecialMode',enabled}),
+      setChannel3SpecialFrequency: (operator,block,fnum) => ({type:'setChannel3SpecialFrequency',operator,block,fnum}),
+      noteOn: (channel,block,fnum) => ({type:'noteOn',channel,block,fnum}),
+      noteOff: channel => ({type:'noteOff',channel}),
+      write: (port,register,value) => ({type:'write',port,register,value}),
+      writeData: value => ({type:'write',port:fm._pendingAddressPort,register:fm._pendingAddressRegister,value}),
+    };
+    for (const [method,toEvent] of Object.entries(events)) {
+      const original = fm[method];
+      if (typeof original !== 'function') continue;
+      fm[method] = (...args) => {
+        const result = original.apply(fm,args);
+        this.#emit(toEvent(...args));
+        return result;
+      };
+    }
+  }
+
+  #emit(event) {
+    if (this.chip === 'ym2610' && event.channel !== undefined) {
+      const channel = [1,2,4,5].indexOf(event.channel);
+      if (channel < 0) return;
+      event = {...event,channel};
+    }
+    for (const listener of this.listeners) {
+      try { listener(event); }
+      catch (error) { console.error(`${this.chipName} listener failed`,error); }
+    }
+  }
+
+  #waitForWorkletReady(node, signal) {
+    return new Promise((resolve, reject) => {
+      const cleanup = () => {
+        node.port.removeEventListener("message", handleMessage);
+        signal.removeEventListener("abort", onAbort);
+      };
+      const onAbort = () => { cleanup(); reject(signal.reason); };
+      const handleMessage = (event) => {
+        const message = event.data;
+        if (message?.type !== "ready" && message?.type !== "error") return;
+        cleanup();
+        if (message.type === "ready") resolve(message);
+        else reject(new Error(message.message || `${this.chipName} AudioWorklet initialization failed`));
+      };
+      node.port.addEventListener("message", handleMessage);
+      signal.addEventListener("abort", onAbort, { once: true });
+      node.port.start();
+      if (signal.aborted) onAbort();
+    });
+  }
+}
+
+function clampMasterVolume(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) throw new Error(`master volume must be a finite number, got ${value}`);
+  return Math.min(MAX_MASTER_VOLUME, Math.max(0, numeric));
+}
+
+// addModule() and arrayBuffer() do not accept AbortSignal themselves.
+async function waitForInitialization(promise, signal) {
+  let onAbort;
+  try {
+    const result = await Promise.race([
+      promise,
+      new Promise((_, reject) => {
+        onAbort = () => reject(signal.reason);
+        signal.addEventListener("abort", onAbort, { once: true });
+        if (signal.aborted) onAbort();
+      }),
+    ]);
+    signal.throwIfAborted();
+    return result;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+}

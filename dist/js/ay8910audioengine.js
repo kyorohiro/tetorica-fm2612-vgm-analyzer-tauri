@@ -4,7 +4,7 @@
  * 依存: 音源チップ／WASM バックエンド（ファクトリーまたはエンジンを注入）。
  * 同期 PCM 生成・ミックス用。DOM・AudioContext・スピーカー出力は不要。
  */
-import {Ay8910} from './ay8910.js';
+import {Ay8910} from './ay8910.js?v=audio-stability-2';
 /**
  * Ay8910AudioEngine adapter for synchronous stereo rendering and VGM register dispatch.
  * Output timing uses sampleRate() frames per second. No browser audio device is opened.
@@ -13,7 +13,7 @@ import {Ay8910} from './ay8910.js';
 export class Ay8910AudioEngine {
   /**
    * Create the chip instances required by this engine.
-   * @param {{moduleFactory: import('./soundchip.js').WasmModuleFactory, moduleOptions?: import('./soundchip.js').WasmModuleOptions, clock?: number, type?: number, flags?: number, outputSampleRate?: number, masterVolume?: number}} [options={}] Chip factories, clocks in Hz and loader settings.
+   * @param {{moduleFactory: import('./soundchip.js?v=y8950-adpcm-ui-1').WasmModuleFactory, moduleOptions?: import('./soundchip.js?v=y8950-adpcm-ui-1').WasmModuleOptions, clock?: number, type?: number, flags?: number, outputSampleRate?: number, masterVolume?: number}} [options={}] Chip factories, clocks in Hz and loader settings.
    * @param {number} [options.outputSampleRate=44100] Output stereo frames per second.
    * @param {number} [options.masterVolume=1] Linear output gain, not dB.
    * @returns {Promise<Ay8910AudioEngine>} Initialized engine owned by the caller.
@@ -88,7 +88,7 @@ export const createAy8910AudioEngine=options=>Ay8910AudioEngine.create(options);
 // Only AY plus optional OPLL is currently routed by the Analyzer's MSX engine.
 /**
  * Reject chip combinations/variant flags not supported by AY playback.
- * @param {import('./ym2612vgm.js').Ym2612VgmHeader} header Parsed VGM clock/variant fields.
+ * @param {import('./ym2612vgm.js?v=vgm-frequency-order-2').Ym2612VgmHeader} header Parsed VGM clock/variant fields.
  * @returns {void}
  * @throws {Error} For unsupported variants or companion chips.
  */
