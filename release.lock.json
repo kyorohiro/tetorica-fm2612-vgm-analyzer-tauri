@@ -1,5 +1,5 @@
 {
-  "archive": "hello_ymfm_wasm_dev_itch_vgm_analyzer_v0.90.1.zip",
+  "archive": "hello_ymfm_wasm_dev_itch_vgm_analyzer.zip",
   "files": {
     "LICENSE": "2d2e9213c170a9866c616fa85b6da993a6724e10befc61f468ed9bfb84c4691c",
     "THIRD_PARTY_LICENSES.txt": "1b437bce11a12157f439277e39441fad321f0cd9ecef43f3d4557a1bd7cd082c",
@@ -9,7 +9,7 @@
     "assets/opna-rhythm/README.md": "df4b2594c82d11d4e80147321dd95a5d49e29df99f38d1c05edeec2f56b9e1be",
     "assets/opna-rhythm/generate.mjs": "e8defa8e0a9e2b9aa162061e9b2a58fc720e105797d89db416f3237ae719d413",
     "assets/opna-rhythm/synthesis.mjs": "6b26b31f91396a3cd6e66f45753edd8825237e5f25549f7f4f84b7cbc6817c18",
-    "audio_preferences.js": "13886ba6fdf35c750293c6ed8701f32db6ac5d8402b0a603c88513697a0e2cdd",
+    "audio_preferences.js": "4892291d9036ca44d6d5e3810698b67a98dd34011b250205ba1729b4c82b6bcd",
     "ay8910_monitor.js": "758944b97710d653e9eeeb4abfd0fdbea32307cc5d8064f1e6faac88eb85e721",
     "command_editor.js": "0cce0d65e09823164f4b3e16e9da667d3df0f43940161b3e5ca293598d61b608",
     "dac_samples.js": "282043a4342058fae916b1f0f6a13ddc794e32239af9c7f51e026056e33b8697",
@@ -88,7 +88,7 @@
     "js/k051649audioengine.js": "5b2a8ccd306123afb1dbb3f31c2a004674bc9231f1edeb29d3cfdefb87d47422",
     "js/looper.js": "a0cc220fd5754a106f3281e3bc69ee14baad6efe24897bba7c2706379ea1c366",
     "js/megasynth-fm-presets.js": "daf3c42d3d6b1777d5729073eed9edf4d96a78d55e22fedfad394137d41bb06c",
-    "js/megasynth.js": "0e770af360b59b90a76f2583c64df30d137cb33c36b9f718e792ee1e26f5ba63",
+    "js/megasynth.js": "09abd303ad706185771c3e585d0333cc571d32fad46f9567759c71c4095c83e6",
     "js/megasynth_fx.js": "e30a0ba1b8edddc95c14772c0b2792f20757d9fea3e64e9abd6f74584958c6e6",
     "js/megasynth_recording.js": "3d1b4bdce3f790bc1a648a07e61b8f3bd0ef9009d0133e35203c24400cc5a7cd",
     "js/msm5205audioengine.js": "1a533692e8645764149fda07ebc0feed1a18010872fe1b27b546b3de0c82a5c5",
@@ -154,8 +154,8 @@
     "js/soundchip-output-worklet.js": "6af798836dbd538ac85d372954aa2da88dcb4c677a8e0880bf5ae3929ab15269",
     "js/soundchip.js": "779112dd11f6c30b503cf08d422776a85e887c00d6357d0cfbfa0f5716857eb6",
     "js/soundchip_factory.js": "fa2300906e905eeea8c189a3d2d9d341fb8d252e7b63c06be9cec66818dcd9ca",
-    "js/soundchip_mixer.js": "40f805329f044edc44d2449379365211e4ddc83a8087a07e04eab39e0f601e59",
-    "js/soundchip_mixer_presets.js": "3ee1fe37aaae78639f48965525e1f160b85d487271ddf411f4dd4524e6f5b4b4",
+    "js/soundchip_mixer.js": "c041315110e9b98119c37cea04b1c4bea308fb52cb591b53101e1e61213eb5bb",
+    "js/soundchip_mixer_presets.js": "c16f2da45ad2d2a85651ac25a03d42e6cbe9503eee2e611df9b8a7d0600f845e",
     "js/soundchip_pitch.js": "c8bcce0f27c2500d6090b5e56660e697b8b03d7ec011cee4deba05664038bae9",
     "js/soundchip_worklet.js": "2b508826a24e656f33406b6fd6e014a80e3403875f7f041055f8ebf5242a1390",
     "js/spc-worklet.js": "d6506437528e24bf3ff26ddbe7db4366a1de34ad5a8df91d5c7cb645d261d6d9",
@@ -191,7 +191,7 @@
     "js/ym2610b.js": "9b258880c46bc0313ce4a98e6f9ce8564405217dbb8ef8198fab8b44eb05678a",
     "js/ym2610baudioengine.js": "561ced3d124a82ec2b5b335c5ed235a2fd4ddde21fec6412df408aad612f1268",
     "js/ym2610bsynth.js": "059b8ca538724ce6e4caa01fd3e230eb232db6f2160651d776d1d6bdc6d2ede7",
-    "js/ym2612-worklet.js": "b4747fc837447ece3a2efb9f88ee39ea2618efc40dcca069052a174c7e0c2c87",
+    "js/ym2612-worklet.js": "5b4441aa36f9d1115317383ef0341697977efe7b9d94ba0c01d3b19c6e783fdd",
     "js/ym2612.js": "a94016aa0f36d8a48465d7c8420af282e00c27e3ffb2b6d00d668f266a4f92b2",
     "js/ym2612_dac.js": "c5b5c78066cc665604085efb5ad395efddee39ebcc760bc7e7adbe4960e2bcaf",
     "js/ym2612synth.js": "c69388bd8a7f8a3bedd4e955ad0c81419c7ed3a50956da655e8f8fea3758623c",
@@ -244,8 +244,8 @@
     "licenses/tetorica-nes/UPSTREAM-JSNES.md": "58808d4249949339577eff9a5312ebc357755cd328d8bfa59621d399f2bac792",
     "mdx_export.js": "6ef643255c3bb7373490cca2811793256b927d4ae2bd8612c51351f80f24e4e7",
     "mgsdrv_mml.js": "c3bd2ef180ac98915443437839d94920f78bad48a16eb617bccad386637e0403",
-    "mixer_calibration_data.js": "826ba70fee44fc21e6e5ed0211be7eebb389d6c33d3ed69727b79c70fb5a74ee",
-    "mixer_defaults.js": "802ff073951a139d04e555fd2f5a5a984f45014f1cd69c788936000d9f44bdb5",
+    "mixer_calibration_data.js": "6b3de8ff45ba63fe3fe3ca4af0cb802ba138152aa2e623dd700971c67867b382",
+    "mixer_defaults.js": "e639ca55f5472d104f54da7587761c15f31b38c13e3b95dadaa31fbe974c2086",
     "mixer_ui.js": "ae9e533c263af119453183b7f3fe581e0725aaa18f123e58fc065efa825676df",
     "msx_mutes.js": "5df0f6d0e77337efd4fd58616ae842830eb2cb45d474edf3d6bad5032bc5a307",
     "msx_notes.js": "aa47e69c729baa38987165db6cc24d222bf3d4f50e8594533152cc4418b835b3",
@@ -267,7 +267,7 @@
     "osmd.html": "04e76b7ed47021d9d978a0b787d9088bcc3c7a9e6da366fae9af27ee603fe0eb",
     "osmd_trial.js": "13ea8e5f88dd35524c4ecf5cb9d691dbadbf9ad4b2dc37da5181857780cb9a3b",
     "playback_core.js": "8d371736ec10454afab18aea2c0d53f320927236c2483d54bafd055e343fd773",
-    "playback_mixer.js": "61eaced77c78f8642435ec6b9c875f0a13924db670aea554bbbf76d728964ba0",
+    "playback_mixer.js": "85b9a5285b82b56efe11036fc686d94584119b4875e8013ee9e61e5fd2a556ad",
     "playground/playground_operator_keyboard.js": "a915006bb9afbc8786c15ac6b083115b2d513a0d0f7382edeadbd5bbbb1bbd8c",
     "playground/playground_operator_tab.js": "fd1cb186f995bf8093a927f3ff6515d42745f4e037a746315bad7737bbd5680e",
     "playground/playground_operator_visual.js": "aa98e3e1f34d6d8cefe11c053bb26902daedb7130c48bfaf242ea8bf76dfffe8",
@@ -372,6 +372,6 @@
     "ymf262_notes.js": "203f4777efedf829da9185111e7ea0b0c8aa5c561f11ee7b59428526bd496336",
     "ymf278b_samples.js": "f8afd3d93515c330e9ace1ab212c9dc33778ac6d01bd74fa7cffbe7f296f3eed"
   },
-  "sha256": "8752cb2e32760aaaf0931c592bb37fa963450fe43ec327b855c27a3bd6440519",
-  "version": "sha256-8752cb2e3276"
+  "sha256": "b0cff256245d11ce3e44a5df915fa363a9b5b10ffe296afb7a192dd58f8fcaa8",
+  "version": "sha256-b0cff256245d"
 }
