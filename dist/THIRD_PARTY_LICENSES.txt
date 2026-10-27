@@ -19,6 +19,7 @@ Sega PCM (315-5218): MAME adaptation by Hiromitsu Shioya, Olivier Galibert, BSD-
 Game Boy APU (LR35902 DMG): MAME adaptation by Wilbert Pol, Anthony Kruize, BSD-3-Clause. See licenses/mame-gameboy/LICENSE and README.md.
 
 WonderSwan: MAME adaptation, BSD-3-Clause. See licenses/mame-wonderswan/LICENSE and README.md.
+Atari POKEY: libvgm/MAME BSD adaptation, BSD-3-Clause. See licenses/libvgm-pokey/ and sources/POKEY.md.
 
 MAME 32X PWM adaptation: BSD-3-Clause. See licenses/mame-32x-pwm/.
 
