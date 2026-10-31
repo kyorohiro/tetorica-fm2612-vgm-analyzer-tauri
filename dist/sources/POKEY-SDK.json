@@ -3,20 +3,21 @@
   "sdk": {
     "schemaVersion": 1,
     "name": "tetorica-soundchip-native",
-    "version": "0.1.5",
-    "sourceCommit": "f45cd2749ce20aeb77f39fcf90facf2772c5fa85",
-    "archiveName": "tetorica-soundchip-native-0.1.5-sources.zip",
-    "archiveSha256": "aebde59e8c8c95ea55d69d42b17e6b9ef2231835a4935411292948e740d98a07",
-    "manifestSha256": "bb542e394b76b1e3c6a34010ecd909d09230ce8b47e76daabf06ccf98d90f280",
-    "fileCount": 408,
+    "version": "0.1.7",
+    "sourceCommit": "51e3f76a5cb624df8b02b608f20c66f1238ea116",
+    "archiveName": "tetorica-soundchip-native-0.1.7-sources.zip",
+    "archiveSha256": "f5839f3ad4bf54d84d2f67c12d9561a98ce79972e6b36394582a0cb0d3e286db",
+    "manifestSha256": "15c4a6a4e65a22abedd1512bf26accb5380b9717b3d2511fcb58adac04f3358f",
+    "fileCount": 476,
     "localCandidate": {
-      "baseCommit": "f45cd2749ce20aeb77f39fcf90facf2772c5fa85",
+      "baseCommit": "51e3f76a5cb624df8b02b608f20c66f1238ea116",
       "changedPaths": [
         "CHANGELOG.md",
-        "README.md",
-        "docs/releases.md",
-        "docs/verification.md",
-        "sdk.json"
+        "catalog/source_inventory.json",
+        "native/tests/scsp_fixture.cpp",
+        "vendor/mame-scsp/README.md",
+        "vendor/mame-scsp/scsp.cpp",
+        "vendor/mame-scsp/scsp.h"
       ]
     }
   },

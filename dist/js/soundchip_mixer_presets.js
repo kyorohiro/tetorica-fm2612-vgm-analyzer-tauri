@@ -114,6 +114,22 @@ export const SOUNDCHIP_MIXER_PRESETS = freeze({
         {
           "name": "ymf262",
           "volume": 0.516785
+        },
+        {
+          "name": "ps1",
+          "volume": 0.129331
+        },
+        {
+          "name": "wonderswan",
+          "volume": 1.172528
+        },
+        {
+          "name": "pokey",
+          "volume": 0.413052
+        },
+        {
+          "name": "scsp",
+          "volume": 0.128826
         }
       ]
     },
