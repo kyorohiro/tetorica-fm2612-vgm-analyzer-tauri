@@ -22,14 +22,23 @@ ZIP の置き場所・ファイル名は自由です。相対パスはコマン�
 
 ```sh
 npm run import:release -- ./xxx.zip
+# Tauriアプリの版番号も更新する場合（ZIPの名前・版番号とは独立）
+npm run import:release -- ./xxx.zip --version 1.2.3
 npm test
 npm run dev
 ```
 
-取り込みで `dist/` と `release.lock.json` が更新されます。バージョン指定は不要です。
+取り込みで `dist/` と `release.lock.json` が更新されます。
 ZIP の SHA-256 と展開した各ファイルのハッシュを記録します。
 
-動作確認後、`dist/` と `release.lock.json` を同じコミットに含めてから `npm run build` します。
+`--version X.Y.Z`を付けると、取り込み成功時に`package.json`、`package-lock.json`、
+`src-tauri/Cargo.toml`、`src-tauri/Cargo.lock`の自分のcrate、`src-tauri/tauri.conf.json`も更新します。
+依存パッケージの版は変更しません。省略時は従来どおりアプリ版を変更しません。
+指定する版はZIPの名前・Web版とは独立し、`release.lock.json`の配布物識別情報は維持します。
+不正な版番号・metadata・ZIPは置換前に拒否し、取り込みや版更新の失敗時は元の状態を保ちます。
+
+動作確認とリリースビルドの後、`dist/`、`release.lock.json`と更新した設定・lockを
+最終コミットに含め、タグを付けます。
 ZIP 自体は Git に含めません。dev / build 前の `--check` はチェックアウト済み `dist/` の整合性を検査し、ZIP の取得や取り込みは行いません。
 Windows でもファイルのハッシュが変わらないよう、`.gitattributes` で `dist/` の改行変換を無効にしています。
 
