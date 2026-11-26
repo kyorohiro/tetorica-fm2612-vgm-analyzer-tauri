@@ -1,5 +1,6 @@
-import {appendGameboyVoice} from './gameboy_voice_view.js?v=gb-info-perf-1';
-import {appendGameboyWave} from './gameboy_wave_view.js?v=gb-info-perf-1';
+import {extractGameboyInstruments} from './gameboy_instruments.js?v=gb-jump-1';
+import {appendGameboyVoice} from './gameboy_voice_view.js?v=gb-jump-1';
+import {appendGameboyWave} from './gameboy_wave_view.js?v=gb-jump-1';
 import {appendWonderSwanWave} from './wonderswan_wave_view.js?v=wonderswan-voice-samples-1';
 import {appendWonderSwanVoice} from './wonderswan_voice_view.js?v=wonderswan-voice-samples-1';
 import {decodeYmf278bSample} from './ymf278b_samples.js';
@@ -7,8 +8,33 @@ import {samplePreviewWav} from './sample_render.js?v=wonderswan-voice-samples-1'
 import {renderSamplePreview} from './sample_render.js?v=wonderswan-voice-samples-1';
 export {configureSamplePreview} from './sample_render.js?v=wonderswan-voice-samples-1';
 import { pwmCaptureWav } from './pwm_samples.js';
-import {sampleFile,extractSamples} from './sample_core.js?v=pokey-vgm-1';
-export {extractSamples} from './sample_core.js?v=pokey-vgm-1';
+import {sampleFile,extractSamples} from './sample_core.js?v=pcm-jump-1';
+export {extractSamples} from './sample_core.js?v=pcm-jump-1';
+
+// OPN previews can render at 1 MHz. Average native samples over each
+// output frame before handing the buffer to Web Audio.
+function opnPreviewBuffer(audio, pcm) {
+  const step = pcm.sampleRate / audio.sampleRate;
+  if (step <= 1) {
+    const buffer = audio.createBuffer(2, pcm.left.length, pcm.sampleRate);
+    buffer.copyToChannel(pcm.left,0); buffer.copyToChannel(pcm.right,1);
+    return buffer;
+  }
+  const frames = Math.ceil(pcm.left.length / step);
+  const buffer = audio.createBuffer(2, frames, audio.sampleRate);
+  for (const [ch,source] of [pcm.left,pcm.right].entries()) {
+    const output = buffer.getChannelData(ch);
+    for (let i = 0; i < frames; i++) {
+      const start = i * step, end = Math.min((i+1)*step,source.length);
+      let sum = 0;
+      for (let j = Math.floor(start); j < end; j++) {
+        sum += source[j] * (Math.min(end,j+1) - Math.max(start,j));
+      }
+      output[i] = sum / (end-start);
+    }
+  }
+  return buffer;
+}
 
 export function mountSampleExplorer(panel, getSource, getOptions = () => ({})) {
   let controller, audio, playing, voicePreviewController, previewSerial = 0, gameboyMode = false;
@@ -16,14 +42,18 @@ export function mountSampleExplorer(panel, getSource, getOptions = () => ({})) {
   const output = document.createElement('div');
   panel.append(button, output);
   const stop = () => { previewSerial++; voicePreviewController?.abort(); voicePreviewController=null; playing?.stop(); playing = null; };
-  const reset = () => { controller?.abort(); stop(); output.replaceChildren(); button.disabled = false; };
-  button.onclick = async () => {
+  const triggers = new Map();
+  let analyzed = false, lastOpened = null;
+  const reset = () => { triggers.clear(); analyzed = false; lastOpened = null; controller?.abort(); stop(); output.replaceChildren(); button.disabled = false; };
+  async function analyze() {
     reset(); const source = getSource();
     if (!source) { output.textContent = 'Load a VGM file first.'; return; }
     controller = new AbortController(); const own = controller;
     button.disabled = true; output.textContent = 'Analyzing…';
     try {
-      const result = await extractSamples(source, { ...getOptions(), signal: own.signal });
+      const options = getOptions();
+      const result = gameboyMode ? await extractGameboyInstruments(source,options.chipIndex ?? 0,own.signal)
+        : await extractSamples(source, { ...options, signal: own.signal });
       if (own.signal.aborted) return;
       output.replaceChildren();
       const note = document.createElement('p'); note.textContent = result.warnings.join(' '); output.append(note);
@@ -91,8 +121,16 @@ export function mountSampleExplorer(panel, getSource, getOptions = () => ({})) {
           heading.textContent = {1:'Pulse CH1',2:'Pulse CH2',3:'Wave CH3 — 32-point waveforms',4:'Noise CH4'}[group];
           output.append(heading);
         }
-        if (s.chip === 'gameboy' && s.kind !== 'wave') { appendGameboyVoice(output, s, uses, uses); continue; }
-        if (s.chip === 'gameboy') { appendGameboyWave(output, s, uses, uses); continue; }
+        if (s.chip === 'gameboy') {
+          if (s.kind === 'wave') {
+            const row = appendGameboyWave(output,s,uses,uses);
+            triggers.set('wave/' + s.waveform.join(','), {row});
+          } else {
+            const {row, selectOccurrence} = appendGameboyVoice(output,s,uses,uses);
+            uses.forEach((event,index) => triggers.set('voice/' + event.commandEnd, {row,selectOccurrence,index}));
+          }
+          continue;
+        }
         const captured = s.kind === 'dac' || s.kind === 'pwm' || s.chip === 'okim6258';
         const row = document.createElement('details'), title = document.createElement('summary');
         title.textContent = `Sample ${s.id} · ${s.chip.toUpperCase()} ${s.kind.toUpperCase()} · ${captured ? `${s.chip==='okim6258'?'timed ADPCM register capture':'captured output'} · ${s.boundary}` : `0x${s.byteStart.toString(16)}–0x${(s.byteEndExclusive - 1).toString(16)}`} · ${s.size} bytes · ${uses.length} uses · ${s.chip === 'rf5c164' ? `RAM snapshot · start 0x${s.startAddress.toString(16)} · loop 0x${s.loopAddress.toString(16)} · ` : ''}${s.data ? 'available' : s.available ? 'partial data' : 'missing data'}`;
@@ -108,19 +146,31 @@ export function mountSampleExplorer(panel, getSource, getOptions = () => ({})) {
             let drawn=false;row.addEventListener('toggle',()=>{if(!row.open||drawn)return;drawn=true;const pcm=s.chip==='segapcm'?Float32Array.from(s.data,v=>(v-128)/128):decodeYmf278bSample(s),ctx=canvas.getContext('2d');ctx.strokeStyle='#44aacc';ctx.beginPath();for(let x=0;x<512;x++){const start=Math.floor(x*pcm.length/512),end=Math.max(start+1,Math.floor((x+1)*pcm.length/512));let lo=1,hi=-1;for(let i=start;i<end;i++){lo=Math.min(lo,pcm[i]);hi=Math.max(hi,pcm[i]);}ctx.moveTo(x,48-hi*46);ctx.lineTo(x,48-lo*46);}ctx.stroke();});
           }
         }
-        if(s.chip==='okim6258' && s.data) {
-          const info=document.createElement('p');info.textContent='Timed ADPCM register capture. Preview includes live pan and clock/divider changes, up to 10 seconds; divider phase restarts at capture start.';row.append(info);
+        const opnSample = s.kind === 'adpcm-a' || s.kind === 'adpcm-b';
+        if((s.chip==='okim6258' || opnSample) && s.data) {
+          if (s.chip==='okim6258') {
+            const info=document.createElement('p');info.textContent='Timed ADPCM register capture. Preview includes live pan and clock/divider changes, up to 10 seconds; divider phase restarts at capture start.';row.append(info);
+          }
           const canvas=document.createElement('canvas');canvas.width=512;canvas.height=96;canvas.style.maxWidth='100%';canvas.setAttribute('aria-label','Decoded ADPCM waveform');row.append(canvas);
           const draw=document.createElement('button');draw.textContent='Show waveform (up to 10 s)';
-          draw.onclick=async()=>{draw.disabled=true;try{
-            const pcm=await renderSamplePreview(s,uses[0],{getFactory:async()=> (await import('./generated/okim6258_wasm.js')).default});
-            if(own.signal.aborted)return;
-            const ctx=canvas.getContext('2d');ctx.strokeStyle='#44aacc';ctx.beginPath();
+          if (opnSample) draw.dataset.adpcmWaveform = '';
+          let drawSerial = 0;
+          draw.onclick=async()=>{const serial = ++drawSerial; draw.disabled=!opnSample;try{
+            const occurrence = opnSample ? Number(row.querySelector('select').value) : 0;
+            const pcm=await renderSamplePreview(s,uses[occurrence],{getFactory:async name=> (await (name==='ym2608' ? import('./generated/ym2608_wasm.js') :
+              name==='ym2610b' ? import('./generated/ym2610b_wasm.js') : import('./generated/okim6258_wasm.js'))).default});
+            if(own.signal.aborted || serial !== drawSerial)return;
+            const ctx=canvas.getContext('2d');
+            if (opnSample) ctx.clearRect(0,0,canvas.width,canvas.height);
+            ctx.strokeStyle='#44aacc';ctx.beginPath();
             for(let x=0;x<512;x++){const from=Math.floor(x*pcm.left.length/512),end=Math.max(from+1,Math.floor((x+1)*pcm.left.length/512));let lo=1,hi=-1;
               for(let i=from;i<end;i++){lo=Math.min(lo,pcm.left[i],pcm.right[i]);hi=Math.max(hi,pcm.left[i],pcm.right[i]);}
               ctx.moveTo(x,48-hi*46);ctx.lineTo(x,48-lo*46);}
             ctx.stroke();
-          }catch(error){note.textContent=error.message;}finally{draw.disabled=false;}};row.append(draw);
+            if (opnSample) canvas.dataset.occurrence = String(occurrence);
+          }catch(error){
+            if (!own.signal.aborted && serial === drawSerial) note.textContent=error.message;
+          }finally{draw.disabled=false;}};row.append(draw);
         }
         if (s.data) {
           const save = document.createElement('button'); save.textContent = captured ? `Save timed ${s.kind.toUpperCase()} JSON` : s.chip === 'rf5c164' ? 'Save 64 KiB RAM snapshot' : ['ymf278b','segapcm'].includes(s.chip) ? 'Save raw PCM' : 'Save raw ADPCM';
@@ -135,6 +185,7 @@ export function mountSampleExplorer(panel, getSource, getOptions = () => ({})) {
             option.textContent = `${(e.startTime / 44100).toFixed(3)} s / ${e.rate.toFixed(2)} Hz`;
             selection.append(option);
           });
+          if (opnSample) selection.onchange = () => row.querySelector('[data-adpcm-waveform]').click();
           const listen = document.createElement('button'); listen.textContent = 'Preview centered (up to 10 s)';
           if(s.kind==='pwm'||['segapcm','okim6258'].includes(s.chip))listen.textContent='Preview stereo (up to 10 s)';
           listen.onclick = async () => {
@@ -146,8 +197,8 @@ export function mountSampleExplorer(panel, getSource, getOptions = () => ({})) {
                   name==='okim6258'?import('./generated/okim6258_wasm.js'):name==='segapcm'?import('./generated/segapcm_wasm.js'):name==='ym2608'?import('./generated/ym2608_wasm.js'):import('./generated/ym2610b_wasm.js'));
                 return module.default;
               }});
-              const buffer=audio.createBuffer(2,pcm.left.length,pcm.sampleRate);
-              buffer.copyToChannel(pcm.left,0);buffer.copyToChannel(pcm.right,1);
+              const buffer = opnSample ? opnPreviewBuffer(audio,pcm) : audio.createBuffer(2,pcm.left.length,pcm.sampleRate);
+              if (!opnSample) {buffer.copyToChannel(pcm.left,0);buffer.copyToChannel(pcm.right,1);}
               if (own.signal.aborted || serial !== previewSerial) return;
               playing = audio.createBufferSource(); playing.buffer = buffer; playing.connect(audio.destination); playing.start();
             } catch (error) { note.textContent = `Preview failed: ${error.message}`; }
@@ -168,13 +219,66 @@ export function mountSampleExplorer(panel, getSource, getOptions = () => ({})) {
             row.append(wav);
           }
         }
+        if (opnSample || s.chip === 'rf5c164') {
+          uses.forEach((event,index) => triggers.set(event.commandEnd + '/' + event.channel, {row,event,index}));
+        }
         output.append(row);
       }
+      analyzed = true;
       const stopButton = document.createElement('button'); stopButton.textContent = 'Stop preview'; stopButton.onclick = stop; output.append(stopButton);
     } catch (error) { if (!own.signal.aborted) output.textContent = `Analysis failed: ${error.message}`; }
     finally { if (!own.signal.aborted) button.disabled = false; }
-  };
-  return { reset, stop, setChip(chip) {
+  }
+  button.onclick = analyze;
+  async function readyToOpen() {
+    if (!analyzed) {
+      const pending = analyze();
+      const own = controller;
+      await pending;
+      if (controller !== own || !analyzed) return false;
+    }
+    return !panel.closest('[hidden]');
+  }
+  async function openGameboyInstrument(key) {
+    if (!await readyToOpen()) return;
+    const match = triggers.get(key);
+    if (!match) {
+      const note = output.querySelector('p');
+      if (note) note.textContent = 'No matching Game Boy instrument was captured.';
+      return;
+    }
+    match.selectOccurrence?.(match.index);
+    openRow(match.row);
+  }
+  async function openSampleTrigger(trigger) {
+    if (!await readyToOpen()) return;
+    const match = triggers.get(trigger.commandEnd + '/' + trigger.channel);
+    if (!match || match.event.startAddress !== trigger.startAddress || match.event.loopAddress !== trigger.loopAddress ||
+        match.event.rawStart !== trigger.rawStart || match.event.rawEnd !== trigger.rawEnd ||
+        match.event.deltaN !== trigger.deltaN || (trigger.addressUnit && (match.event.addressUnit ?? 256) !== trigger.addressUnit)) {
+      const note = output.querySelector('p');
+      if (note) note.textContent = 'No matching sample was captured for this trigger.';
+      return;
+    }
+    const {row,event,index} = match;
+    const selection = row.querySelector('select');
+    if (selection) {
+      if (!Array.from(selection.options).some(option => Number(option.value) === index)) {
+        selection.add(new Option(`${(event.startTime/44100).toFixed(3)} s / ${event.rate.toFixed(2)} Hz`, String(index)));
+      }
+      selection.value = String(index);
+    }
+    openRow(row);
+  }
+  function openRow(row) {
+    if (lastOpened && lastOpened !== row) lastOpened.open = false;
+    lastOpened = row;
+    row.open = true;
+    row.querySelector('[data-adpcm-waveform]')?.click();
+    row.querySelector('summary').focus();
+    row.scrollIntoView({block:'nearest'});
+  }
+  return { reset, stop, openSampleTrigger, openGameboyInstrument, setChip(chip) {
     const next = chip === 'gameboy';
     if (next !== gameboyMode) reset();
     gameboyMode = next;

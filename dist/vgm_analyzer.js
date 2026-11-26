@@ -21,7 +21,7 @@ import {createOpl3Monitor,applyOpl3Write,describeOpl3Notes} from './ymf262_notes
 import {createNesMonitor,applyNesWrite,describeNesNotes} from './nes_notes.js?v=pokey-vgm-1';
 import {createDefaultTfiPreset, findOperatorFromSlotOffset, cloneTfiPreset, presetSignature, decodeKeyOnChannel, extractTfiPatchesFromVgm} from './tfi_extract.js?v=pokey-vgm-1';
 import {createStoredZipBytes} from './stored_zip.js';
-import { createPlaybackEngine, selectPlaybackConfiguration, detectPlaybackChipKindFromVgm, detectPlaybackChipKind } from './playback_core.js?v=pokey-vgm-1&mix=console-songs-1';
+import { dualOpnParts, createPlaybackEngine, selectPlaybackConfiguration, detectPlaybackChipKindFromVgm, detectPlaybackChipKind } from './playback_core.js?v=pokey-vgm-1&mix=console-songs-1';
 import { mountMusicSheet } from "./music_sheet.js?v=snes-score-1";
 import { renderVgmToWav } from "./vgm_wav.js";
 import { createExportTempoSettings } from "./export_tempo.js?v=snes-score-1";
@@ -37,19 +37,22 @@ import { msxMuteControls, applyMsxMute } from './msx_mutes.js';
 import {mountAy8910Monitor} from './ay8910_monitor.js?v=common-mutes-1';
 import {mountYm2413Monitor} from './ym2413_monitor.js';
 import {mountPokeyMonitor} from './pokey_monitor.js?v=pokey-vgm-1';
-import { mountTfiInfo } from "./tfi_info.js?v=fm2612-snapshot-1";
-import { mountSampleExplorer } from './sample_explorer.js?v=pokey-vgm-1';
+import { mountTfiInfo } from "./tfi_info.js?v=instrument-chips-1";
+import { mountSampleExplorer } from './sample_explorer.js?v=gb-jump-1';
 import { renderAllFretboard } from './fretboard_all.js';
 import { createNoteTimeline } from './note_timeline_view.js?v=pokey-vgm-1';
 import { seekPlayback } from './seek_playback.js';
 import { timelinePlaybackPosition } from './note_timeline.js';
 import { describeToneNotes } from './tone_notes.js?v=pokey-vgm-1';
-import { createGameboyMonitor, applyGameboyWrite, describeGameboyNotes } from './gameboy_notes.js?v=pokey-vgm-1';
+import {drawGameboyWave} from './js/gameboy_wave_canvas.js';
+import { createGameboyMonitor, gameboyChannelSettings, applyGameboyWrite, describeGameboyNotes } from './gameboy_notes.js?v=gb-jump-1';
 import { midiChipKind } from "./vgm_notes.js?v=pokey-vgm-1";
 import { renderFretboard, FRET_TRAIL_MS, createFretboardTracker } from "./fretboard.js?v=hand-position-2";
 import { exportAnalysisMidi, exportNoteAnalysisMidi } from "./analyzer_core.js?v=pokey-vgm-1&mix=console-songs-1";
-import { createRf5c164Monitor, describeRf5c164Monitor, observeRf5c164Engine } from "./rf5c164_monitor.js";
+import { createRf5c164Monitor, describeRf5c164Monitor, observeRf5c164Engine } from "./rf5c164_monitor.js?v=pcm-jump-1";
 import { sourcesForChip, applySourceMutes, allSourcesMuted } from "./source_mutes.js?v=pokey-vgm-1";
+import {installOpnChannelMutes} from './opn_channel_mutes.js';
+import {rhythmNames, createOpnAdpcmMonitor, writeOpnAdpcm, opnAdpcmRows} from './opn_adpcm_monitor.js';
 import { createPsgMonitor, describePsgMonitor, observePsgEngine, applySsgWrite } from "./psg_monitor.js?v=ym2610-vgm-2";
 import { exportMucomMml, exportOpnavoidMml } from "./vgm_mml.js?v=pokey-vgm-1";
 import { exportMdx } from "./mdx_export.js?v=pokey-vgm-1";
@@ -131,7 +134,7 @@ function refreshSong() {
   if (!songPlayer) return;
   const state = songPlayer.read();
   if (songPlayer.chip === 'SCSP') {
-    for (const button of monitorToggles.children) {
+    for (const button of monitorToggles.querySelectorAll('[data-scsp-slot]')) {
       const slot = Number(button.dataset.scspSlot);
       if (Number.isInteger(slot)) button.classList.toggle('is-key-on', Boolean(state.keyOnMask & (1 << slot)));
     }
@@ -610,6 +613,7 @@ const hasOkiSource = () => Boolean(noteishHeader?.okim6258Clock);
 let noteishHeader = {};
 let channelMonitor = createChannelMonitorState();
 let monitorFrequencyHigh = [0, 0];
+let opnAdpcm = null;
 let psgMonitor = createPsgMonitor(currentChipKind);
 let toneChannels = [];
 let apuNoteMonitor = createGameboyMonitor();
@@ -642,7 +646,26 @@ const pokeyChannelMutes = Array(4).fill(false);
 const huc6280ChannelMutes = Array(6).fill(false);
 const nesChannelMutes = Array(6).fill(false);
 let mixedPlaybackParts = [];
+let dualFm = [];
+let dualPsg = [];
+let inspectedPsg = null;
+let dualDmg = [];
+let inspectedDmg = null;
+let inspectedFm = 0;
+function resetDualFmRegisters() {
+  for (const fm of dualFm) {
+    fm.channels = Array.from({length:6}, (_,ch) => buildMonitorChannel(ch,fm.part.kind));
+    fm.high = [0,0];
+    if (fm.ssgMuted) {
+      fm.ssg = createPsgMonitor(fm.part.kind);
+      fm.adpcm = createOpnAdpcmMonitor(fm.part.kind);
+    }
+  }
+}
 const sourceMutes = { psg: false, ssg: false, rhythm: false, adpcmB: false, pcm: false, pwm: false, oki: false, oki6295: false, segapcm: false, msm5205:false };
+const adpcmAChannelMutes = {ym2608:Array(6).fill(false), ym2610:Array(6).fill(false)};
+const rf5c164ChannelMutes = Array(8).fill(false);
+const ssgChannelMutes = [false, false, false];
 const psgChannelMutes = [false, false, false, false];
 // Without the rhythm ROM, decoding its all-zero sample stream is audible
 // noise, not silence (see YM2608_RHYTHM_ROM_WARNING) - force the source
@@ -790,9 +813,26 @@ function requestPlaybackUiRender() {
   });
 }
 
+function createDockButtonAppender(root, chip) {
+  const groups = new Map();
+  return (button,label = chip.toUpperCase()) => {
+    let group = groups.get(label);
+    if (!group) {
+      group = document.createElement('fieldset');
+      const legend = document.createElement('legend');
+      legend.textContent = label;
+      group.append(legend);
+      root.append(group);
+      groups.set(label,group);
+    }
+    group.append(button);
+  };
+}
+
 function renderMonitorToggles() {
   ensureMonitorToggleHandler();
   monitorToggles.innerHTML = "";
+  const append = createDockButtonAppender(monitorToggles,currentChipKind);
   if (['sid','vsu','scsp','spu'].includes(currentChipKind)) {
     const keyOnMask = currentChipKind === 'scsp' ? songPlayer?.read().keyOnMask : 0;
     for (let channel = 0; songPlayer && channel < (songPlayer.channelCount ?? 3); channel++) {
@@ -809,7 +849,7 @@ function renderMonitorToggles() {
         button.classList.toggle('is-key-on', Boolean(keyOnMask & bit));
       }
       button.onclick = () => {songPlayer.setMuteMask(songPlayer.muteMask ^ bit); renderMonitorToggles();};
-      monitorToggles.append(button);
+      append(button);
     }
     return;
   }
@@ -817,25 +857,72 @@ function renderMonitorToggles() {
     for(const part of mixedPlaybackParts){
       const muted=Boolean(sourceMutes[part.id]),button=document.createElement('button');
       button.type='button';button.className=`channel-toggle${muted?' is-muted':''}`;
-      button.textContent=part.chips.join(' + ');
       button.setAttribute('aria-pressed',String(!muted));
       button.setAttribute('data-monitor-toggle-kind','mixed-source');
-      button.setAttribute('data-mixed-source',part.id);monitorToggles.append(button);
+      const fmIndex = dualFm.findIndex(fm => fm.part.id === part.id);
+      const index = part.chipIndex ?? 0;
+      const dmg = part.kind === 'gameboy' && dualDmg[index];
+      const psg = part.chips.includes('psg') && dualPsg[index];
+      const label = dualFm[fmIndex]?.label && part.chips.length === 1 ? dualFm[fmIndex].label : part.chips.map(chip => {
+        const paired = noteishHeader[chip+'Clock'] & 0x40000000;
+        const name = chip === 'gameBoyDmg' ? 'Game Boy DMG' : chip === 'psg' ? 'Sega PSG' : chip.toUpperCase();
+        return name + (paired ? ' ' + (index+1) : '');
+      }).join(' + ');
+      button.textContent = 'All';
+      button.setAttribute('aria-label',label + ' All');
+      button.setAttribute('data-mixed-source',part.id);
+      append(button,label);
+      const fm = dualFm[fmIndex];
+      function addChannels(states,kind,labels) {
+        states.forEach((muted,ch) => {
+          if (kind === 'dual-fm-channel' && fm.channels[ch].unavailable) return;
+          const toggle = document.createElement('button');
+          toggle.type = 'button';
+          toggle.className = 'channel-toggle' + (muted ? ' is-muted' : '');
+          toggle.textContent = labels ? labels[ch] : 'CH' + (ch+1);
+          toggle.dataset.monitorToggleKind = kind;
+          toggle.dataset.chipIndex = (dmg || psg) ? index : fmIndex;
+          toggle.dataset.channelIndex = ch;
+          toggle.setAttribute('aria-pressed',String(!muted));
+          append(toggle,label);
+        });
+      }
+      if (psg) addChannels(psg.mutes,'dual-psg-channel',['CH1','CH2','CH3','CH4 Noise']);
+      if (dmg) addChannels(dmg.mutes,'dual-dmg-channel');
+      if (!fm) continue;
+      addChannels(fm.muted,'dual-fm-channel');
+      if (fm.ssgMuted) {
+        addChannels(fm.ssgMuted,'dual-ssg-channel',['SSG A','SSG B','SSG C']);
+        const names = fm.part.kind === 'ym2608' ? rhythmNames : Array.from({length:6},(_,ch) => 'ADPCM-A CH' + (ch+1));
+        addChannels(fm.sampleMutes,'dual-sample-channel',[...names,'ADPCM-B']);
+      }
     }
     return;
   }
 
-  if (noteishHeader?.psgClock & 0x3fffffff) {
-    psgChannelMutes.forEach((muted, index) => {
+  function appendChannelToggles(states, kind, labels, group) {
+    states.forEach((muted, index) => {
       const button = document.createElement('button');
       button.type = 'button';
       button.className = `channel-toggle${muted ? ' is-muted' : ''}`;
-      button.textContent = `PSG ${index === 3 ? 'CH4 Noise' : `CH${index + 1}`}`;
+      button.textContent = labels[index];
       button.setAttribute('aria-pressed', String(!muted));
-      button.setAttribute('data-monitor-toggle-kind', 'psg-channel');
-      button.setAttribute('data-channel-index', String(index));
-      monitorToggles.append(button);
+      button.dataset.monitorToggleKind = kind;
+      button.dataset.channelIndex = String(index);
+      append(button,group);
     });
+  }
+  if (['ym2203','ym2608','ym2610'].includes(currentChipKind)) {
+    appendChannelToggles(ssgChannelMutes, 'ssg-channel', ['SSG A','SSG B','SSG C']);
+  } else if (noteishHeader?.psgClock & 0x3fffffff) {
+    appendChannelToggles(psgChannelMutes, 'psg-channel', ['PSG CH1','PSG CH2','PSG CH3','PSG CH4 Noise'], 'Sega PSG');
+  }
+  if (currentChipKind === 'ym2608' || currentChipKind === 'ym2610') {
+    const labels = currentChipKind === 'ym2608' ? rhythmNames : Array.from({length:6}, (_,i) => 'ADPCM-A CH' + (i+1));
+    appendChannelToggles(adpcmAChannelMutes[currentChipKind], 'adpcm-a-channel', labels);
+  }
+  if (currentChipKind === 'ym2612' && (noteishHeader?.rf5c164Clock & 0x3fffffff)) {
+    appendChannelToggles(rf5c164ChannelMutes, 'rf5c164-channel', rf5c164ChannelMutes.map((_,i) => 'PCM ' + (i+1)), 'RF5C164');
   }
   if (['msx', 'y8950'].includes(currentChipKind)) {
     for (const control of msxMuteControls(currentChipKind, noteishHeader)) {
@@ -848,7 +935,7 @@ function renderMonitorToggles() {
       button.setAttribute('aria-pressed', String(!muted));
       button.setAttribute('data-monitor-toggle-kind', 'msx-control');
       button.setAttribute('data-msx-control', control.key);
-      monitorToggles.append(button);
+      append(button,control.chip.toUpperCase());
     }
     return;
   }
@@ -861,19 +948,20 @@ function renderMonitorToggles() {
       button.setAttribute('aria-pressed', String(!control.muted));
       button.setAttribute('data-monitor-toggle-kind', 'ay-control');
       button.setAttribute('data-ay-control', control.key);
-      monitorToggles.append(button);
+      append(button,control.key === 'opll' ? 'YM2413' : 'AY / YM2149');
     }
     return;
   }
   for (const source of sourcesForChip(sourceChipKind(), hasOkiSource(), Boolean(noteishHeader?.okim6295Clock), Boolean(noteishHeader?.msm5205Clock))) {
     const button = document.createElement("button");
+    if (source.key === 'psg' && !(noteishHeader?.psgClock & 0x3fffffff)) continue;
     const muted = sourceMutes[source.key];
     button.type = "button";
     button.className = `channel-toggle${muted ? " is-muted" : ""}`;
     button.textContent = source.label;
     button.setAttribute("aria-pressed", String(!muted));
     button.setAttribute("data-monitor-toggle-kind", source.key);
-    monitorToggles.append(button);
+    append(button,({psg:"Sega PSG",pcm:"RF5C164",pwm:"PWM",oki:"OKIM6258",oki6295:"OKIM6295",msm5205:"MSM5205",segapcm:"Sega PCM"})[source.key]);
   }
 
   if (CHANNEL_MUTE_CHIPS.includes(currentChipKind)) {
@@ -890,7 +978,7 @@ function renderMonitorToggles() {
       if (currentChipKind === 'pokey') button.title = 'Physical output channel. Joined lower channels and filter clocks may drive other voices; muting their output preserves those timer dependencies.';
       if (['gameboy','nes'].includes(currentChipKind)) button.title = currentChipKind==='nes'?'CH1/CH2 pulse, CH3 triangle, CH4 noise, CH5 DMC, CH6 FDS (when present).':'CH1/CH2 square, CH3 wave, CH4 noise.';
       button.setAttribute('data-channel-index', String(index));
-      monitorToggles.append(button);
+      append(button,currentChipKind === 'pokey' && pokeyChannelMutes.length > 4 ? 'POKEY ' + (1 + Math.floor(index/4)) : undefined);
     });
   }
   if (currentChipKind === 'ymf278b') {
@@ -904,7 +992,7 @@ function renderMonitorToggles() {
         button.setAttribute('aria-pressed', String(!muted));
         button.setAttribute('data-monitor-toggle-kind', kind);
         button.setAttribute('data-channel-index', String(index));
-        monitorToggles.append(button);
+        append(button);
       });
     }
   }
@@ -917,7 +1005,7 @@ function renderMonitorToggles() {
     button.setAttribute("data-monitor-toggle-kind", "channel");
     button.setAttribute("aria-pressed", String(!channel.muted));
     button.setAttribute("data-channel-index", String(channel.channel));
-    monitorToggles.append(button);
+    append(button);
   });
 }
 
@@ -935,14 +1023,54 @@ function ensureMonitorToggleHandler() {
     }
     event.preventDefault();
     const kind = target.getAttribute("data-monitor-toggle-kind");
-    if (kind === 'psg-channel') {
-      const index = Number(target.getAttribute('data-channel-index'));
-      if (!Number.isInteger(index) || index < 0 || index > 3 || !(noteishHeader?.psgClock & 0x3fffffff)) return;
-      psgChannelMutes[index] = !psgChannelMutes[index];
-      engine?.setPsgChannelMuted?.(index, psgChannelMutes[index]);
+    if (currentChipKind === 'mixed' && (kind === 'dual-psg-channel' || kind === 'psg-channel' && inspectedPsg !== null)) {
+      const index = kind === 'dual-psg-channel' ? Number(target.dataset.chipIndex) : inspectedPsg;
+      const psg = dualPsg[index], ch = Number(target.dataset.channelIndex);
+      psg.mutes[ch] = !psg.mutes[ch];
+      psg.device?.setPsgChannelMuted(ch,psg.mutes[ch]);
+      if (inspectedPsg === index) renderChannelMonitor();
+      renderMonitorToggles();
+      flushPendingAudio();
+      return;
+    }
+    if (currentChipKind === 'mixed' && kind === 'dual-dmg-channel') {
+      const index = Number(target.dataset.chipIndex), ch = Number(target.dataset.channelIndex);
+      const dmg = dualDmg[index];
+      dmg.mutes[ch] = !dmg.mutes[ch];
+      dmg.device?.setChannelMuted(ch,dmg.mutes[ch]);
+      if (inspectedDmg === index) renderDmgView(dmg.monitor,dmg.mutes,index);
+      renderMonitorToggles();
+      flushPendingAudio();
+      return;
+    }
+    if (currentChipKind === 'mixed' && (kind === 'dual-sample-channel' || kind === 'adpcm-a-channel')) {
+      const index = kind === 'dual-sample-channel' ? Number(target.dataset.chipIndex) : inspectedFm;
+      toggleDualSampleMute(index,Number(target.dataset.channelIndex));
+      return;
+    }
+    if (currentChipKind === 'mixed' && kind === 'ssg-channel' && dualFm[inspectedFm]?.ssgMuted) {
+      toggleDualFmChannel(inspectedFm,Number(target.dataset.channelIndex),true);
+      return;
+    }
+    if (['rf5c164-channel','ssg-channel','psg-channel','adpcm-a-channel'].includes(kind)) {
+      const channelControls = {
+        'rf5c164-channel':[rf5c164ChannelMutes, 'setRf5c164ChannelMuted'],
+        'ssg-channel':[ssgChannelMutes, 'setSsgChannelMuted'],
+        'psg-channel':[psgChannelMutes, 'setPsgChannelMuted'],
+        'adpcm-a-channel':[adpcmAChannelMutes[currentChipKind], 'setAdpcmAChannelMuted'],
+      };
+      const [states, method] = channelControls[kind];
+      const index = Number(target.dataset.channelIndex);
+      if (!states || !Number.isInteger(index) || index < 0 || index >= states.length) return;
+      states[index] = !states[index];
+      engine?.[method]?.(index, states[index]);
       renderMonitorToggles();
       requestChannelMonitorRender();
       flushPendingAudio();
+      return;
+    }
+    if (['dual-fm-channel','dual-ssg-channel'].includes(kind) && currentChipKind === 'mixed') {
+      toggleDualFmChannel(Number(target.dataset.chipIndex),Number(target.dataset.channelIndex),kind === 'dual-ssg-channel');
       return;
     }
     if(kind==='mixed-source' && currentChipKind==='mixed'){toggleSourceMute(target.getAttribute('data-mixed-source'));return;}
@@ -977,7 +1105,11 @@ function ensureMonitorToggleHandler() {
       toggleChannelMute(channelIndex);
     }
   };
+  monitorToggles.addEventListener("click", event => {
+    if (event.detail === 0) handleToggle(event); // Keyboard or assistive activation.
+  });
   monitorToggles.addEventListener("pointerdown", handleToggle);
+  for (const id of ["psgMonitor","rhythmMonitor","adpcmAMonitor","pcmMonitor","gameboyWaveMonitor"]) document.getElementById(id).addEventListener("click", handleToggle);
 }
 
 function createChannelMonitorState() {
@@ -988,7 +1120,8 @@ function createChannelMonitorState() {
   return Array.from({ length: channelCount }, (_, index) => buildMonitorChannel(index));
 }
 
-function buildMonitorChannel(index) {
+function buildMonitorChannel(index,kind = currentChipKind) {
+  const unavailable = kind === "ym2610" && !(noteishHeader.ym2610Clock & 0x80000000) && [0,3].includes(index);
   return {
     channel: index,
     keyOn: false,
@@ -1007,8 +1140,8 @@ function buildMonitorChannel(index) {
     noteSequence: [],
     noteSequenceOpen: false,
     lastSequenceNote: null,
-    muted: channelMuteStates[index] || (currentChipKind === "ym2610" && !(noteishHeader.ym2610Clock & 0x80000000) && [0,3].includes(index)),
-    unavailable: currentChipKind === "ym2610" && !(noteishHeader.ym2610Clock & 0x80000000) && [0,3].includes(index),
+    muted: channelMuteStates[index] || unavailable,
+    unavailable,
     b4Value: 0xc0,
     specialMode: false,
     specialFrequencies: {
@@ -1066,6 +1199,10 @@ function createOperatorChangeState() {
   };
 }
 
+function recentAdpcmStart(time) {
+  return time > 0 && performance.now() - time < 350;
+}
+
 function changeAgeOpacity(changedAt) {
   if (!changedAt) {
     return 0;
@@ -1107,7 +1244,9 @@ function ensureChannelMonitorRenderTimer() {
   }
   channelMonitorRenderTimer = window.setInterval(() => {
     if (operatorInfoPanel.hidden) return;
-    const psgRecent = (currentChipKind === 'ym2151' && opmMonitor.hasRecentChanges()) || psgMonitor.changedAt.some((time) => changeAgeOpacity(time) > 0) ||
+    const recentAdpcm = currentChipKind === 'mixed' ? dualFm[inspectedFm]?.adpcm : opnAdpcm;
+    const activePsg = dualPsg[inspectedPsg]?.monitor ?? psgMonitor;
+    const psgRecent = recentAdpcm?.starts.some(recentAdpcmStart) || (currentChipKind === 'ym2151' && opmMonitor.hasRecentChanges()) || activePsg.changedAt.some((time) => changeAgeOpacity(time) > 0) ||
       changeAgeOpacity(pcmMonitor.changedAt) > 0 || pcmMonitor.channels.some((channel) => changeAgeOpacity(channel.changedAt) > 0);
     if (!channelMonitorDirty && !hasRecentChannelChanges() && !psgRecent && !psgHighlightActive) {
       return;
@@ -1157,32 +1296,96 @@ function requestNoteishRender() {
   noteishDirty = true;
 }
 
-function renderPsgMonitor() {
-  const state = describePsgMonitor(psgMonitor, psgMonitor.kind === "ssg" ? sourceMutes.ssg : sourceMutes.psg);
-  const title = document.getElementById("psgMonitorTitle");
-  title.textContent = state.kind === "ssg" ? `${(currentChipKind === "ym2610" && (noteishHeader.ym2610Clock & 0x80000000) ? "YM2610B" : currentChipKind.toUpperCase())} SSG${sourceMutes.ssg ? " · Muted" : ""}` : `Sega PSG${sourceMutes.psg ? " · Muted" : ""}`;
+function renderRegisterRows(table, rows, muteStates) {
+  const body = table.tBodies[0];
+  rows.forEach(({name, active, values}, index) => {
+    const existing = body.rows[index];
+    const row = existing ?? body.insertRow();
+    if (!existing) {
+      const header = document.createElement("th");
+      header.scope = "row";
+      if (muteStates) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = name;
+        button.className = 'channel-toggle';
+        button.dataset.monitorToggleKind = table.dataset.muteKind;
+        button.dataset.channelIndex = String(index);
+        header.append(button);
+      } else header.textContent = name;
+      row.append(header);
+      for (let i = 0; i < values.length; i++) row.insertCell();
+    }
+    if (muteStates) {
+      const button = row.cells[0].firstElementChild;
+      button.setAttribute('aria-pressed', String(!muteStates[index]));
+      button.classList.toggle('is-muted', muteStates[index]);
+    }
+    row.classList.toggle("is-active", active);
+    row.cells[0].title = table.id === 'pcmChannels' ? (active ? 'Channel enabled' : 'Channel disabled') : table.dataset.pulse ? "Recent start command" : active ? "Volume register active" : "Volume register silent";
+    values.forEach((value, i) => {
+      const cell = row.cells[i + 1];
+      if (cell.textContent === String(value)) return;
+      cell.textContent = String(value);
+      if (existing && !table.closest("[hidden]")) {
+        for (const animation of cell.getAnimations()) animation.cancel();
+        cell.animate([{backgroundColor:"#ffcb79"}, {backgroundColor:"transparent"}], 750);
+      }
+    });
+  });
+}
+
+function renderPsgMonitor(monitor = psgMonitor, mutes = monitor.kind === 'ssg' ? ssgChannelMutes : psgChannelMutes, label) {
+  const ssg = monitor.kind === 'ssg';
+  const muted = label ? sourceMutes[(ssg ? dualFm[inspectedFm] : dualPsg[inspectedPsg]).part.id] : ssg ? sourceMutes.ssg : sourceMutes.psg;
+  const state = describePsgMonitor(monitor,muted);
+  const chip = label ?? (currentChipKind === 'ym2610' && (noteishHeader.ym2610Clock & 0x80000000) ? 'YM2610B' : currentChipKind.toUpperCase());
+  document.getElementById('psgMonitorTitle').textContent = (ssg ? chip + ' SSG' : (label ?? 'Sega PSG')) + (muted ? ' · Muted' : '');
   const token = (label, value, ...registers) => renderChannelChip(label, value,
-    Math.max(0, ...registers.map((r) => psgMonitor.changedAt[r])), "166 214 148");
-  const card = (name, content) => `<section class="channel-card"><div class="channel-head"><span class="channel-title">${name}</span></div><div class="channel-row">${content}</div></section>`;
-  let cards = state.channels.map((channel, i) => card(channel.name,
-    token("PERIOD", channel.period, i * 2, ...(state.kind === "ssg" ? [i * 2 + 1] : [])) +
-    (state.kind === "ssg" ?
-      token("TONE", channel.toneEnabled ? "ON" : "OFF", 7) +
-      token("NOISE", channel.noiseEnabled ? "ON" : "OFF", 7) +
-      token("VOLUME", channel.envelope ? "ENV" : channel.volume, 8 + i) :
-      token("ATTENUATION", channel.attenuation === 15 ? "15 · MUTE" : channel.attenuation, i * 2 + 1))
-  )).join("");
-  if (state.kind === "ssg") {
-    cards += card("Shared Noise / Envelope", token("NOISE PERIOD", state.noisePeriod, 6) +
+    Math.max(0, ...registers.map((r) => monitor.changedAt[r])), "166 214 148");
+  const segaTable = document.getElementById("segaPsgChannels");
+  const ssgTable = document.getElementById("ssgChannels");
+  segaTable.hidden = ssg;
+  ssgTable.hidden = !ssg;
+  document.getElementById("psgMonitorGrid").hidden = !ssg;
+  if (ssg) {
+    renderRegisterRows(ssgTable, state.channels.map(ch => ({
+      name: ch.name, active: ch.envelope || ch.volume > 0,
+      values: [ch.period, ch.toneEnabled ? "ON" : "OFF", ch.noiseEnabled ? "ON" : "OFF", ch.envelope ? "ENV" : ch.volume],
+    })), mutes);
+    document.getElementById("ssgShared").innerHTML = token("NOISE PERIOD", state.noisePeriod, 6) +
       token("ENV PERIOD", state.envelope.period, 11, 12) + token("SHAPE", state.envelope.shape, 13) +
-      ["continue", "attack", "alternate", "hold"].map((key) => token(key.toUpperCase(), state.envelope[key] ? "ON" : "OFF", 13)).join(""));
+      ["continue", "attack", "alternate", "hold"].map(key => token(key.toUpperCase(), state.envelope[key] ? "ON" : "OFF", 13)).join("");
   } else {
-    cards += card("Noise", token("MODE", state.noise.mode, 6) +
-      token("RATE", state.noise.tone3Linked ? `Tone 3 · period ${state.channels[2].period}` : [16, 32, 64][state.noise.rate], 6, ...(state.noise.tone3Linked ? [4] : [])) +
-      token("ATTENUATION", state.noise.attenuation === 15 ? "15 · MUTE" : state.noise.attenuation, 7));
+    const noise = state.noise;
+    const rate = noise.tone3Linked ? `Tone 3 · period ${state.channels[2].period}` : [16, 32, 64][noise.rate];
+    const rows = [...state.channels.map(ch => [ch.name, ch.period, "Tone", ch.attenuation]),
+      ["Noise", rate, noise.mode, noise.attenuation]];
+    renderRegisterRows(segaTable, rows.map(([name, period, mode, attenuation]) => ({
+      name, active: attenuation < 15, values: [period, mode, attenuation === 15 ? "15 · MUTE" : attenuation],
+    })), mutes);
   }
-  document.getElementById("psgMonitorGrid").innerHTML = cards;
   document.getElementById("psgMonitorRegisters").innerHTML = state.registers.map((value, r) => token(`R${r.toString(16).toUpperCase().padStart(2, "0")}`, `0x${value.toString(16).toUpperCase().padStart(2, "0")}`, r)).join("");
+}
+
+function renderSampleLinks(table, getTrigger) {
+  for (const [i, row] of Array.from(table.tBodies[0].rows).entries()) {
+    let open = row.querySelector('[data-open-sample]');
+    if (!open) {
+      open = document.createElement('button');
+      open.type = 'button';
+      open.dataset.openSample = '';
+      open.textContent = 'Open sample';
+      open.onclick = () => {
+        const trigger = getTrigger(i);
+        if (!trigger || sampleTab.disabled) return;
+        setOutputTab('samples');
+        void sampleExplorer.openSampleTrigger(trigger);
+      };
+      row.insertCell().append(open);
+    }
+    open.disabled = !getTrigger(i) || sampleTab.disabled;
+  }
 }
 
 function renderPcmMonitor() {
@@ -1194,17 +1397,13 @@ function renderPcmMonitor() {
   const grid = document.getElementById("pcmMonitorGrid");
   grid.hidden = !state.used;
   document.getElementById("pcmMonitorHelp").hidden = !state.used;
-  if (!state.used) { grid.innerHTML = ""; return; }
-  const token = (label, value, time) => renderChannelChip(label, value, time, "166 214 148");
-  grid.innerHTML = `<section class="channel-card"><div class="channel-head"><span class="channel-title">Shared control</span></div><div class="channel-row">${token("CHIP", state.enabled ? "ON" : "OFF", pcmMonitor.changedAt)}${token("SELECTED", state.selectedChannel, pcmMonitor.changedAt)}${token("RAM BANK", state.ramBank, pcmMonitor.changedAt)}</div></section>` +
-    state.channels.map((channel, i) => {
-      const t = pcmMonitor.channels[i].changedAt;
-      return `<section class="channel-card"><div class="channel-head"><span class="channel-title">${channel.name}</span></div><div class="channel-row">${
-        token("CHANNEL", channel.enabled ? "ON" : "OFF", t) + token("VOLUME", channel.volume, t) +
-        token("PAN L / R", `${channel.panLeft} / ${channel.panRight}`, t) + token("STEP", channel.step, t) +
-        token("START", formatHex(channel.startAddress, 4), t) + token("LOOP", formatHex(channel.loopAddress, 4), t)
-      }</div></section>`;
-    }).join("");
+  if (!state.used) return;
+  document.getElementById("pcmShared").textContent = `Selected CH ${state.selectedChannel} · RAM bank ${state.ramBank}`;
+  renderRegisterRows(document.getElementById("pcmChannels"), state.channels.map(ch => ({
+    name:ch.name, active:ch.enabled, values:[ch.enabled ? 'ON' : 'OFF', ch.volume, ch.panLeft, ch.panRight,
+      ch.step, formatHex(ch.startAddress,4), formatHex(ch.loopAddress,4)],
+  })), rf5c164ChannelMutes);
+  renderSampleLinks(document.getElementById("pcmChannels"), i => pcmMonitor.lastTriggers[i]);
 }
 
 function resetOpmNotes(clock) {
@@ -1320,6 +1519,7 @@ function resetApuNoteChannels() {
 }
 
 function resetPsgMonitor() {
+  opnAdpcm = ['ym2608','ym2610'].includes(currentChipKind) ? createOpnAdpcmMonitor(currentChipKind) : null;
   pcmMonitor = createRf5c164Monitor();
   psgMonitor = createPsgMonitor(currentChipKind);
   toneChannels = [];
@@ -1329,18 +1529,132 @@ function resetPsgMonitor() {
 
 function observePsgPlaybackEngine() {
   observePsgEngine(engine, () => psgMonitor, () => { updateToneMonitor(); requestChannelMonitorRender(); }, resetPsgMonitor);
-  observeRf5c164Engine(engine, () => pcmMonitor, requestChannelMonitorRender);
+  observeRf5c164Engine(engine, () => pcmMonitor, requestChannelMonitorRender, undefined, () => player?.parser?.position);
+}
+
+function renderGameboySettings(monitor,mutes,chipIndex) {
+  const cards = document.getElementById('gameboyChannels');
+  gameboyChannelSettings(monitor).forEach((fields, i) => {
+    let card = cards.children[i];
+    if (!card) {
+      card = document.createElement('section');
+      card.className = 'channel-card';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'channel-toggle';
+      button.dataset.channelIndex = String(i);
+      button.textContent = 'CH' + (i+1) + ' · ' + ['Pulse','Pulse','Wave','Noise'][i];
+      const list = document.createElement('dl');
+      for (const [label] of fields) {
+        const term = document.createElement('dt');
+        term.textContent = label;
+        list.append(term, document.createElement('dd'));
+      }
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.textContent = i === 2 ? 'Open wave' : 'Open voice';
+      open.onclick = () => {
+        const chipIndex = Number(open.dataset.chipIndex);
+        const key = open.dataset.instrumentKey;
+        const tab = instrumentTabs.querySelector('[aria-controls="gbInstrument' + chipIndex + '"]');
+        if (!key || !tab) return;
+        tab.click();
+        void gbInstrumentViews[chipIndex].openGameboyInstrument(key);
+      };
+      card.append(button, open, list);
+      cards.append(card);
+    }
+    const open = card.children[1];
+    const command = monitor.lastVoiceCommands[i];
+    const key = i === 2 ? (monitor.wave.includes(-1) ? '' : 'wave/' + monitor.wave.join(','))
+      : command == null ? '' : 'voice/' + command;
+    open.dataset.chipIndex = chipIndex ?? 0;
+    open.dataset.instrumentKey = key;
+    open.disabled = !key;
+    const button = card.firstElementChild;
+    button.dataset.monitorToggleKind = chipIndex == null ? 'opm-channel' : 'dual-dmg-channel';
+    button.dataset.chipIndex = chipIndex ?? 0;
+    button.setAttribute('aria-pressed', String(!mutes[i]));
+    button.classList.toggle('is-muted', mutes[i]);
+    fields.forEach(([,value], index) => {
+      const cell = card.lastElementChild.children[index * 2 + 1];
+      if (cell.textContent === value) return;
+      if (cell.textContent && !cards.closest('[hidden]')) {
+        for (const animation of cell.getAnimations()) animation.cancel();
+        cell.animate([{backgroundColor:'#ffcb79'}, {backgroundColor:'transparent'}], 750);
+      }
+      cell.textContent = value;
+    });
+  });
+}
+
+function renderAdpcmMonitor(monitor,mutes) {
+  for (const part of ['A','B']) {
+    const rhythm = part === 'A' && monitor.chip === 'ym2608';
+    const table = document.getElementById(rhythm ? 'rhythmChannels' : 'adpcm' + part + 'Channels');
+    if (table.closest('[hidden]')) continue;
+    const rows = opnAdpcmRows(monitor, part);
+    rows.forEach((row,i) => { row.active = recentAdpcmStart(monitor.starts[part === 'A' ? i : 6]); });
+    renderRegisterRows(table, rows, part === 'A' ? mutes : null);
+    if (!rhythm) renderSampleLinks(table, i => currentChipKind === 'mixed' ? null : opnAdpcm?.lastTriggers[part === 'B' ? 6 : i]);
+    if (part === 'A') document.getElementById(rhythm ? 'rhythmTotalLevel' : 'adpcmTotalLevel').textContent = monitor.a[1] & 63;
+  }
+}
+
+function renderDmgView(monitor,mutes,chipIndex) {
+  renderGameboySettings(monitor,mutes,chipIndex);
+  const values = Array.from(monitor.wave, value => value < 0 ? '·' : value.toString(16).toUpperCase()).join(' ');
+  const readout = document.getElementById('gameboyWaveValues');
+  if (readout.textContent !== values) {
+    drawGameboyWave(document.getElementById('gameboyWaveCanvas'), monitor.wave);
+    readout.textContent = values;
+  }
+}
+
+function observeDmg(device,getMonitor,onNotes,onReset) {
+  const write = device.writeGameboyApu.bind(device), reset = device.reset.bind(device);
+  device.writeGameboyApu = (r,v) => {
+    write(r,v);
+    const monitor = getMonitor();
+    if (!monitor) return;
+    if (r >= 0x20 && r <= 0x2f) {
+      const index = (r - 0x20) * 2;
+      monitor.wave[index] = v >> 4;
+      monitor.wave[index+1] = v & 15;
+    } else if (applyGameboyWrite(monitor,r,v,player?.parser?.position)) onNotes?.();
+    requestChannelMonitorRender();
+  };
+  device.reset = () => {reset(); onReset(); requestChannelMonitorRender();};
 }
 
 function renderChannelMonitor() {
   const opn = ['ym2612','ym2203','ym2608','ym2610'].includes(currentChipKind);
+  if (currentChipKind === 'mixed' && dualPsg[inspectedPsg]) {
+    const psg = dualPsg[inspectedPsg];
+    renderPsgMonitor(psg.monitor,psg.mutes,psg.label);
+    return;
+  }
+  if (currentChipKind === 'mixed' && dualDmg[inspectedDmg]) {
+    const dmg = dualDmg[inspectedDmg];
+    renderDmgView(dmg.monitor,dmg.mutes,inspectedDmg);
+    return;
+  }
+  if (currentChipKind === 'mixed' && dualFm.length) {
+    const fm = dualFm[inspectedFm];
+    fm2612Voice.update(fm.channels,fm.part.kind);
+    if (fm.ssg) renderPsgMonitor(fm.ssg,fm.ssgMuted,fm.label);
+    if (fm.adpcm) renderAdpcmMonitor(fm.adpcm,fm.sampleMutes);
+    return;
+  }
   fm2612Voice.update(opn ? channelMonitor : [], currentChipKind);
   if (currentChipKind === 'pokey') {renderMonitorToggles(); pokeyMonitor.render(); return;}
   if (currentChipKind === "ym2151") opmMonitor.render();
   if (currentChipKind === "ay8910") { renderMonitorToggles(); ayMonitor.render(); if (noteishHeader.ym2413Clock & 0x3fffffff) ym2413Monitor.render(); return; }
   if (currentChipKind === "ym2413") { renderMonitorToggles(); ym2413Monitor.render(); return; }
   if (isOpl(currentChipKind)) { renderMonitorToggles(); oplMonitor.render(); return; }
-  if (["msx","wonderswan","huc6280","gameboy","nes","ymf278b","ymf262"].includes(currentChipKind)) { renderMonitorToggles(); return; }
+  if (currentChipKind === 'gameboy') {renderDmgView(apuNoteMonitor,gameboyChannelMutes); return;}
+  if (["msx","wonderswan","huc6280","nes","ymf278b","ymf262"].includes(currentChipKind)) { renderMonitorToggles(); return; }
+  if (opnAdpcm) renderAdpcmMonitor(opnAdpcm,adpcmAChannelMutes[currentChipKind]);
   renderPsgMonitor();
   renderPcmMonitor();
   renderMonitorToggles();
@@ -1896,7 +2210,7 @@ function toggleOpmChannelMute(index) {
   const muted = !states[index];
   engine?.setChannelMuted(index, muted);
   states[index] = muted;
-  if (currentChipKind === 'pokey') requestChannelMonitorRender();
+  if (['pokey','gameboy'].includes(currentChipKind)) requestChannelMonitorRender();
   renderMonitorToggles();
   flushPendingAudio();
 }
@@ -2083,7 +2397,7 @@ const HEADER_CHIP_FIELDS = [
 ];
 function detectHeaderChips(header) {
   return HEADER_CHIP_FIELDS
-    .map(([key, label]) => [key === 'pokeyClock' && (header[key] & 0x40000000) ? 'POKEY × 2' : key === 'ym2151Clock' && (header[key] & 0x80000000) ? 'YM2164 (OPP)' : key === 'nesApuClock' && (header[key] & 0x80000000) ? 'NES APU + FDS' : key === 'k051649Clock' && (header[key] & 0x80000000) ? 'K052539 (SCC+)' : label, header[key] & 0x3fffffff])
+    .map(([key, label]) => [['psgClock','pokeyClock','ym2612Clock','ym2608Clock','ym2610Clock','gameBoyDmgClock'].includes(key) && (header[key] & 0x40000000) ? (key === 'ym2610Clock' ? (header[key] & 0x80000000 ? 'YM2610B' : 'YM2610') : label) + ' × 2' : key === 'ym2151Clock' && (header[key] & 0x80000000) ? 'YM2164 (OPP)' : key === 'nesApuClock' && (header[key] & 0x80000000) ? 'NES APU + FDS' : key === 'k051649Clock' && (header[key] & 0x80000000) ? 'K052539 (SCC+)' : label, header[key] & 0x3fffffff])
     .filter(([, hz]) => hz > 0)
     .map(([label, hz]) => `${label} (${formatClockHz(hz)})`);
 }
@@ -2153,15 +2467,15 @@ function renderPcmRamWrites(entries) {
   }).join("\n");
 }
 
-function applyYm2612WriteToMonitor(port, register, value) {
+function applyYm2612WriteToMonitor(port, register, value, channels = channelMonitor, high = monitorFrequencyHigh, kind = currentChipKind) {
   // OPN high writes only latch; low writes commit the pitch. Both ports
   // share the normal latch, with a separate latch for CH3 special mode.
   if ((register & 0xf0) === 0xa0 && (register & 3) < 3 && (register & 4)) {
-    monitorFrequencyHigh[(register & 8) ? 1 : 0] = value & 0x3f;
+    high[(register & 8) ? 1 : 0] = value & 0x3f;
     return;
   }
 
-  if (currentChipKind === 'ym2610') {
+  if (kind === 'ym2610') {
     if (port === 0 && register < 0x20 || port === 1 && register < 0x30) return;
     if (!(noteishHeader.ym2610Clock & 0x80000000)) {
       const index = register === 0x28 && port === 0 ? decodeKeyOnChannel(value) : port*3 + (register&3);
@@ -2172,13 +2486,13 @@ function applyYm2612WriteToMonitor(port, register, value) {
   const now = performance.now();
   const channelBase = port === 0 ? 0 : 3;
 
-  if (port === 0 && register === 0x22 && currentChipKind !== 'ym2203') {
-    for (const ch of channelMonitor) ch.lfo = value & 15;
+  if (port === 0 && register === 0x22 && kind !== 'ym2203') {
+    for (const ch of channels) ch.lfo = value & 15;
     requestChannelMonitorRender();
     return;
   }
   if (port === 0 && register === 0x27) {
-    const ch3 = channelMonitor[2];
+    const ch3 = channels[2];
     ch3.csm = Boolean(value & 0x80);
     ch3.specialMode = (value & 0x40) !== 0;
     ch3.changedAt.specialMode = now;
@@ -2189,21 +2503,25 @@ function applyYm2612WriteToMonitor(port, register, value) {
   if (port === 0 && register === 0x28) {
     const channel = decodeKeyOnChannel(value);
     if (channel !== null) {
-      const wasKeyOn = channelMonitor[channel].keyOn;
-      beginNoteishOnset(channelMonitor[channel], wasKeyOn, (value >> 4) & 15);
-      channelMonitor[channel].keyMask = (value >> 4) & 15;
-      channelMonitor[channel].keyOn = ((value >> 4) & 0x0f) !== 0;
-      channelMonitor[channel].changedAt.keyOn = now;
-      if (channelMonitor[channel].keyOn) {
+      const wasKeyOn = channels[channel].keyOn;
+      beginNoteishOnset(channels[channel], wasKeyOn, (value >> 4) & 15);
+      channels[channel].keyMask = (value >> 4) & 15;
+      channels[channel].keyOn = ((value >> 4) & 0x0f) !== 0;
+      channels[channel].changedAt.keyOn = now;
+      if (channels !== channelMonitor) {
+        requestChannelMonitorRender();
+        return;
+      }
+      if (channels[channel].keyOn) {
         updateChannelObservedRange(channel);
-        const estimated = estimateChannelNoteish(channelMonitor[channel]);
+        const estimated = estimateChannelNoteish(channels[channel]);
         recordChannelNoteHistory(channel, estimated.midiFloat);
-        channelMonitor[channel].noteSequenceOpen = true;
+        channels[channel].noteSequenceOpen = true;
         appendChannelNoteSequence(channel, estimated.midiFloat, !wasKeyOn);
       } else {
         recordChannelNoteHistory(channel, null);
-        channelMonitor[channel].noteSequenceOpen = false;
-        channelMonitor[channel].lastSequenceNote = null;
+        channels[channel].noteSequenceOpen = false;
+        channels[channel].lastSequenceNote = null;
       }
       changed = true;
     }
@@ -2216,12 +2534,16 @@ function applyYm2612WriteToMonitor(port, register, value) {
 
   if (register >= 0xa0 && register <= 0xa2) {
     const channel = channelBase + (register - 0xa0);
-    const state = channelMonitor[channel];
+    const state = channels[channel];
     settleNoteishOnset(state);
-    state.block = monitorFrequencyHigh[0] >> 3;
-    state.fnum = ((monitorFrequencyHigh[0] & 7) << 8) | value;
+    state.block = high[0] >> 3;
+    state.fnum = ((high[0] & 7) << 8) | value;
     state.changedAt.block = now;
-    channelMonitor[channel].changedAt.fnum = now;
+    channels[channel].changedAt.fnum = now;
+    if (channels !== channelMonitor) {
+      requestChannelMonitorRender();
+      return;
+    }
     updateChannelObservedRange(channel);
     if (state.keyOn) {
       const estimated = estimateChannelNoteish(state);
@@ -2236,9 +2558,9 @@ function applyYm2612WriteToMonitor(port, register, value) {
 
   if (port === 0 && register >= 0xa8 && register <= 0xaa) {
     const operator = register === 0xa8 ? 3 : register === 0xa9 ? 1 : 2;
-    const state = channelMonitor[2].specialFrequencies[operator];
-    state.block = monitorFrequencyHigh[1] >> 3;
-    state.fnum = ((monitorFrequencyHigh[1] & 7) << 8) | value;
+    const state = channels[2].specialFrequencies[operator];
+    state.block = high[1] >> 3;
+    state.fnum = ((high[1] & 7) << 8) | value;
     state.changedAt.block = now;
     state.changedAt.fnum = now;
     requestChannelMonitorRender();
@@ -2247,39 +2569,39 @@ function applyYm2612WriteToMonitor(port, register, value) {
 
   if (register >= 0xb0 && register <= 0xb2) {
     const channel = channelBase + (register - 0xb0);
-    const state = channelMonitor[channel];
+    const state = channels[channel];
     state.feedback = (value >> 3) & 0x07;
     state.algorithm = value & 0x07;
-    channelMonitor[channel].changedAt.feedback = now;
-    channelMonitor[channel].changedAt.algorithm = now;
+    channels[channel].changedAt.feedback = now;
+    channels[channel].changedAt.algorithm = now;
     changed = true;
     requestChannelMonitorRender();
     requestNoteishRender();
     return;
   }
 
-  if (currentChipKind !== 'ym2203' && register >= 0xb4 && register <= 0xb6) {
+  if (kind !== 'ym2203' && register >= 0xb4 && register <= 0xb6) {
     const channel = channelBase + (register - 0xb4);
-    const state = channelMonitor[channel];
+    const state = channels[channel];
     state.b4Value = value;
     state.panLeft = (value & 0x80) !== 0;
     state.panRight = (value & 0x40) !== 0;
-    channelMonitor[channel].changedAt.pan = now;
+    channels[channel].changedAt.pan = now;
     changed = true;
     requestChannelMonitorRender();
     return;
   }
 
-  if (currentChipKind === 'ym2612' && port === 0 && register === 0x2b && channelMonitor[5]) {
-    channelMonitor[5].dacEnabled = (value & 0x80) !== 0;
-    channelMonitor[5].changedAt.dacEnabled = now;
+  if (kind === 'ym2612' && port === 0 && register === 0x2b && channels[5]) {
+    channels[5].dacEnabled = (value & 0x80) !== 0;
+    channels[5].changedAt.dacEnabled = now;
     requestChannelMonitorRender();
     return;
   }
 
-  if (currentChipKind === 'ym2612' && port === 0 && register === 0x2a && channelMonitor[5]) {
-    channelMonitor[5].dacValue = value;
-    channelMonitor[5].changedAt.dacValue = now;
+  if (kind === 'ym2612' && port === 0 && register === 0x2a && channels[5]) {
+    channels[5].dacValue = value;
+    channels[5].changedAt.dacValue = now;
     requestChannelMonitorRender();
     return;
   }
@@ -2297,7 +2619,7 @@ function applyYm2612WriteToMonitor(port, register, value) {
   }
 
   const channel = channelBase + channelOffset;
-  const state = channelMonitor[channel].operators[operator];
+  const state = channels[channel].operators[operator];
   const registerBase = register & 0xf0;
 
   if (registerBase === 0x30) {
@@ -2579,11 +2901,36 @@ async function ensurePlaybackReady(vgm) {
   noteishHeader = vgm.header;
 
   currentHasPcm = Boolean(vgm.header.rf5c164Clock);
+  if (currentChipKind === 'gameboy') renderMonitorToggles();
   currentPcmClock = vgm.header.rf5c164Clock & 0x3fffffff;
 
   if (!engine) {
     engine = await createPlaybackEngine(vgm, {getFactory: getBrowserPlaybackFactory, masterVolume:Math.min(masterVolume,3.8), allowMissingYm2608RhythmRom: true,
       roms: {ym2608AdpcmA:ym2608AdpcmARomBytes, ymf278bWave:ymf278bWaveRomBytes}});
+    installOpnChannelMutes(engine, currentChipKind);
+    for (const [index,psg] of dualPsg.entries()) {
+      const part = engine.entries.get(psg.part.id+':0').engine;
+      observePsgEngine(part.mixerEngine ?? part,() => dualPsg[index].monitor,requestChannelMonitorRender,
+        () => {dualPsg[index].monitor = createPsgMonitor('psg');});
+    }
+    if (currentChipKind === 'mixed') for (const [index,dmg] of dualDmg.entries()) {
+      const part = engine.entries.get(dmg.part.id+':0').engine;
+      const device = part.mixerEngine ?? part;
+      observeDmg(device,() => dualDmg[index]?.monitor,null,() => {
+        const active = dualDmg[index];
+        if (active) active.monitor = createGameboyMonitor();
+      });
+    }
+    if (engine.fmInstances?.length) {
+      engine.onFmWrite = (index,port,register,value) => {
+        const fm = dualFm[index];
+        if (!fm) return;
+        if (fm.adpcm && writeOpnAdpcm(fm.adpcm,port,register,value,timelineSeekController ? 0 : performance.now(),player?.parser?.position)) requestChannelMonitorRender();
+        else if (fm.ssg && applySsgWrite(fm.ssg,port,register,value,performance.now())) requestChannelMonitorRender();
+        else applyYm2612WriteToMonitor(port,register,value,fm.channels,fm.high,fm.part.kind);
+      };
+      engine.onFmReset = resetDualFmRegisters;
+    }
     if (currentChipKind === 'pokey') {
       engine.onWrite = (register, value, chipIndex) => {
         if (pokeyMonitor.write(register, value, chipIndex)) requestChannelMonitorRender();
@@ -2622,11 +2969,7 @@ async function ensurePlaybackReady(vgm) {
         engine.writeNesApu=(r,v)=>{write(r,v);if(applyNesWrite(apuNoteMonitor,r,v))updateApuNoteMonitor();};
         engine.reset=()=>{reset();resetApuNoteChannels();};
       }
-      if (chip === 'gameboy') {
-        const gbWrite = engine.writeGameboyApu.bind(engine), gbReset = engine.reset.bind(engine);
-        engine.writeGameboyApu = (r, v) => { gbWrite(r, v); if (applyGameboyWrite(apuNoteMonitor, r, v)) updateApuNoteMonitor(); };
-        engine.reset = () => { gbReset(); resetApuNoteChannels(); };
-      }
+      if (chip === 'gameboy') observeDmg(engine,() => apuNoteMonitor,updateApuNoteMonitor,resetApuNoteChannels);
       observePsgPlaybackEngine();
     } else if (currentChipKind === "ym2151") {
       observeOpmEngine(engine, opmMonitor, requestChannelMonitorRender);
@@ -2669,21 +3012,28 @@ async function ensurePlaybackReady(vgm) {
       engine.writeYm2413 = (r,v) => {opllWrite(r,v);ym2413Monitor.write(r,v);updateYm2413ToneMonitor();requestChannelMonitorRender();};
       engine.reset = () => {opllReset();ym2413Monitor.reset();resetYm2413NoteChannels();};
       observePsgPlaybackEngine();
-    } else if (currentChipKind === "ym2610") {
+    } else if (['ym2608','ym2610'].includes(currentChipKind)) {
       observePsgPlaybackEngine();
-      baseEngineWriteYm2610 = engine.writeYm2610B.bind(engine);
+      const method = currentChipKind === "ym2608" ? "writeYm2608" : "writeYm2610B";
+      const write = engine[method].bind(engine);
+      engine[method] = (port, reg, value) => {
+        if (opnAdpcm && writeOpnAdpcm(opnAdpcm, port, reg, value, timelineSeekController ? 0 : performance.now(), player?.parser?.position)) requestChannelMonitorRender();
+        return write(port, reg, value);
+      };
+      if (currentChipKind === 'ym2608') baseEngineWriteYm2608 = engine[method];
+      else baseEngineWriteYm2610 = engine[method];
     } else if (currentChipKind === "ym2203") {
       observePsgPlaybackEngine();
       baseEngineWriteYm2203 = engine.writeYm2203.bind(engine);
-    } else if (currentChipKind === "ym2608") {
-      observePsgPlaybackEngine();
-      baseEngineWriteYm2608 = engine.writeYm2608.bind(engine);
     } else if (currentChipKind === "ym2612") {
       observePsgPlaybackEngine();
       baseEngineWriteYm2612 = engine.writeYm2612.bind(engine);
     }
   }
   mixerUi.attach(engine.playbackMixer);
+  if (currentChipKind === 'ym2612' && currentHasPcm) rf5c164ChannelMutes.forEach((muted,index) => engine.setRf5c164ChannelMuted(index,muted));
+  if (engine.setAdpcmAChannelMuted) adpcmAChannelMutes[currentChipKind].forEach((muted,index) => engine.setAdpcmAChannelMuted(index,muted));
+  if (engine.setSsgChannelMuted) ssgChannelMutes.forEach((muted,index) => engine.setSsgChannelMuted(index,muted));
   if (noteishHeader?.psgClock & 0x3fffffff) psgChannelMutes.forEach((muted, index) => engine.setPsgChannelMuted?.(index, muted));
   engineClockKey = nextClockKey;
   if (currentChipKind === "ym2203") channelMonitor.forEach((channel, index) => engine.setChannelMuted(index, channel.muted));
@@ -2696,17 +3046,36 @@ async function ensurePlaybackReady(vgm) {
   else if (['msx', 'y8950'].includes(currentChipKind)) {
     for (const control of msxMuteControls(currentChipKind, noteishHeader)) applyMsxMute(engine, currentChipKind, control, msxMutes.get(control.key) ?? false);
   }
-  else if(currentChipKind==='mixed'){for(const part of mixedPlaybackParts)engine.setChipMuted(part.id,0,Boolean(sourceMutes[part.id]));}
+  else if(currentChipKind==='mixed'){
+    for(const part of mixedPlaybackParts)engine.setChipMuted(part.id,0,Boolean(sourceMutes[part.id]));
+    dualPsg.forEach(psg => {
+      const part = engine.entries.get(psg.part.id+':0').engine;
+      psg.device = part.mixerEngine ?? part;
+      psg.mutes.forEach((muted,ch) => psg.device.setPsgChannelMuted(ch,muted));
+    });
+    dualDmg.forEach(dmg => {
+      const part = engine.entries.get(dmg.part.id+':0').engine;
+      dmg.device = part.mixerEngine ?? part;
+      dmg.mutes.forEach((muted,ch) => dmg.device.setChannelMuted(ch,muted));
+    });
+    dualFm.forEach((fm,i) => {
+      fm.engine = engine;
+      fm.muted.forEach((muted,ch) => engine.setFmChannelMuted(i,ch,muted));
+      fm.sampleMutes?.forEach((muted,ch) => applyDualSampleMute(i,ch,muted));
+      fm.ssgMuted?.forEach((muted,ch) => engine.setInstanceSsgChannelMuted(i,ch,muted));
+    });
+  }
   else applySourceMutes(engine, sourceChipKind(), effectiveSourceMutes(), hasOkiSource(), Boolean(noteishHeader?.okim6295Clock), Boolean(noteishHeader?.msm5205Clock));
   if (!player) {
     player = new VgmPlayer(engine);
     if (['ym2612', 'ym2203', 'ym2608', 'ym2610', 'ym2151', 'gameboy', 'nes'].includes(currentChipKind)) {
       player.checkpointIntervalSeconds = 5;
-      player.captureSeekState = () => structuredClone({channelMonitor, monitorFrequencyHigh, psgMonitor, pcmMonitor, lastYm2612DacEnable,
+      player.captureSeekState = () => structuredClone({channelMonitor, monitorFrequencyHigh, psgMonitor, pcmMonitor, opnAdpcm, lastYm2612DacEnable,
         ...(currentChipKind === 'ym2151' ? {opm:opmMonitor.saveState(),opmTracker:opmNoteTracker.saveState(),opmNoteChannels} : {}),
         ...(['gameboy','nes'].includes(currentChipKind) ? {apuNoteMonitor,apuNoteChannels} : {})});
       player.restoreSeekState = state => {
-        ({channelMonitor, monitorFrequencyHigh, psgMonitor, pcmMonitor, lastYm2612DacEnable} = state);
+        ({channelMonitor, monitorFrequencyHigh, psgMonitor, pcmMonitor, opnAdpcm, lastYm2612DacEnable} = state);
+        opnAdpcm?.starts.fill(0);
         if (state.opm) { opmMonitor.loadState(state.opm);opmNoteTracker.loadState(state.opmTracker);opmNoteChannels=state.opmNoteChannels; }
         if (state.apuNoteMonitor) {
           apuNoteMonitor=state.apuNoteMonitor;apuNoteChannels=state.apuNoteChannels;
@@ -2884,8 +3253,8 @@ function updatePlaybackButtons(state = {}) {
 
 function chipSupportMessage(currentChipKind, noteishHeader, mixedPlaybackParts) {
   if (currentChipKind === 'pokey') return 'POKEY: one or two independent chips, four physical outputs each. SoundChip shows written AUDF/AUDC/AUDCTL/SKCTL state and nominal plain-square pitch. Noise, volume-only DAC, joined helpers, high-pass and two-tone modes are labelled without inferred notes. Physical channel mute preserves timer/filter dependencies. Normal seeking and WAV export are available; no seek checkpoints, Song, Sheet Music, MIDI/MML or FM instrument exports.';
-  let message = currentChipKind === 'wonderswan' ? 'WonderSwan Note-ish: four-channel wavetable base pitches, Live / Song, Sheet Music, MIDI / MusicXML / LilyPond and WAV. CH2 Voice PCM, CH3 sweep and CH4 noise intervals are omitted from notes. Waveform harmonics and RAM rewriting are not inferred. Sample Explorer exports Wave RAM and timed Voice PCM as JSON / WAV. Instrument editing is unavailable; normal seeking only. Hyper Voice / DMA and dual-chip / variant files are unsupported.' : currentChipKind === 'msx' ? 'MSX AY / OPLL / Y8950 / SCC / SCC+ / OPM / OPP: Live and Song Note-ish, Sheet Music, MIDI / MusicXML / LilyPond use base pitches. ADPCM, noise, partial OPM keys, CSM, timbre and modulation are omitted. SCC waveform harmonics and rewriting are not transcribed. More than 15 channels require multi-port MIDI playback.' : currentChipKind === 'ymf278b' ? 'YMF278B FM Note-ish: 18-channel 2op/4op base pitches; pairs use the leading CH. PCM voices, rhythm, timbre, modulation and release are omitted. FM Sheet Music / MIDI / MusicXML / LilyPond export available. PCM Sample Explorer provides key-on snapshots, waveform, raw preview and WAV; load Wave ROM when required.' : currentChipKind === 'huc6280' ? 'HuC6280 Note-ish: 6-channel wavetable base pitches. PCM/DDA, noise and LFO CH1/CH2 intervals are omitted from notes. MIDI / MusicXML / LilyPond and WAV export available. Original timbres and PCM pitch are not reconstructed; instrument editing: Support coming soon.' : isOpl(currentChipKind) ? 'OPL / OPL2 / Y8950: 9-channel base-pitch Note-ish, MIDI, MusicXML and LilyPond. Rhythm CH7–9, CSM and Y8950 ADPCM are omitted. SoundChip includes a register-state JSON snapshot export; no TFI/VGI conversion or instrument editing.' : currentChipKind === 'ymf262' ? 'YMF262 Note-ish / Sheet Music / MIDI / MusicXML / LilyPond: 2op and 4op base pitches; pairs use the leading CH. Rhythm, timbre, modulation and release are omitted. MIDI playback requires multi-port support.' : currentChipKind === 'ym2151' ? 'YM2151 register monitor available. Base-pitch Note-ish available; noise/partial keys/CSM are omitted. MIDI base-pitch export available. OPM snapshots are available in the Export group. MXDRV MML / MDX file export available. Instrument editing: Support coming soon.' : currentChipKind === 'ay8910' ? 'AY / YM2149 register monitor and base-pitch Note-ish available; noise/envelope shape are omitted. MIDI and LilyPond/Music Sheet base-pitch export available. Instrument editing and MML export: Support coming soon.' : currentChipKind === 'ym2413' ? 'YM2413 register monitor and base-pitch Note-ish available: FNUM/BLOCK base pitch, instrument number, volume and rhythm mode state; rhythm channels other than Bass Drum have no single pitch. MIDI and LilyPond/Music Sheet base-pitch export available. Instrument editing and MML export: Support coming soon.' : ['gameboy','nes','ymf278b','ymf262'].includes(currentChipKind) ? (currentChipKind==='nes'?'NES APU / FDS: pulse, triangle and optional FDS base-pitch notes, MIDI and Music Sheet. FDS modulation and envelope timing are not transcribed. Noise/DMC are omitted from scores; time-based modulation is approximate.': 'Game Boy DMG base-pitch Note-ish available for CH1/CH2 (square) and CH3 (wave); CH4 (noise) has no pitch, and length counter/CH1 sweep are not reconstructed. MIDI and LilyPond/Music Sheet base-pitch export available. Register monitor, instrument editing and MML export: Support coming soon.') : ['okim6295','okim6258','segapcm'].includes(currentChipKind) ? `${currentChipKind.toUpperCase()} analysis and instrument editing: Support coming soon.` : '';
-  if(currentChipKind==='mixed')message='Multi-chip playback: '+mixedPlaybackParts.map(p=>p.chips.join(' + ')).join(' + ')+'. Source mute and WAV export are available. Combined note/instrument analysis and seek checkpoints are not available.';
+  let message = currentChipKind === 'wonderswan' ? 'WonderSwan Note-ish: four-channel wavetable base pitches, Live / Song, Sheet Music, MIDI / MusicXML / LilyPond and WAV. CH2 Voice PCM, CH3 sweep and CH4 noise intervals are omitted from notes. Waveform harmonics and RAM rewriting are not inferred. Sample Explorer exports Wave RAM and timed Voice PCM as JSON / WAV. Instrument editing is unavailable; normal seeking only. Hyper Voice / DMA and dual-chip / variant files are unsupported.' : currentChipKind === 'msx' ? 'MSX AY / OPLL / Y8950 / SCC / SCC+ / OPM / OPP: Live and Song Note-ish, Sheet Music, MIDI / MusicXML / LilyPond use base pitches. ADPCM, noise, partial OPM keys, CSM, timbre and modulation are omitted. SCC waveform harmonics and rewriting are not transcribed. More than 15 channels require multi-port MIDI playback.' : currentChipKind === 'ymf278b' ? 'YMF278B FM Note-ish: 18-channel 2op/4op base pitches; pairs use the leading CH. PCM voices, rhythm, timbre, modulation and release are omitted. FM Sheet Music / MIDI / MusicXML / LilyPond export available. PCM Sample Explorer provides key-on snapshots, waveform, raw preview and WAV; load Wave ROM when required.' : currentChipKind === 'huc6280' ? 'HuC6280 Note-ish: 6-channel wavetable base pitches. PCM/DDA, noise and LFO CH1/CH2 intervals are omitted from notes. MIDI / MusicXML / LilyPond and WAV export available. Original timbres and PCM pitch are not reconstructed; instrument editing: Support coming soon.' : isOpl(currentChipKind) ? 'OPL / OPL2 / Y8950: 9-channel base-pitch Note-ish, MIDI, MusicXML and LilyPond. Rhythm CH7–9, CSM and Y8950 ADPCM are omitted. SoundChip includes a register-state JSON snapshot export; no TFI/VGI conversion or instrument editing.' : currentChipKind === 'ymf262' ? 'YMF262 Note-ish / Sheet Music / MIDI / MusicXML / LilyPond: 2op and 4op base pitches; pairs use the leading CH. Rhythm, timbre, modulation and release are omitted. MIDI playback requires multi-port support.' : currentChipKind === 'ym2151' ? 'YM2151 register monitor available. Base-pitch Note-ish available; noise/partial keys/CSM are omitted. MIDI base-pitch export available. OPM snapshots are available in the Export group. MXDRV MML / MDX file export available. Instrument editing: Support coming soon.' : currentChipKind === 'ay8910' ? 'AY / YM2149 register monitor and base-pitch Note-ish available; noise/envelope shape are omitted. MIDI and LilyPond/Music Sheet base-pitch export available. Instrument editing and MML export: Support coming soon.' : currentChipKind === 'ym2413' ? 'YM2413 register monitor and base-pitch Note-ish available: FNUM/BLOCK base pitch, instrument number, volume and rhythm mode state; rhythm channels other than Bass Drum have no single pitch. MIDI and LilyPond/Music Sheet base-pitch export available. Instrument editing and MML export: Support coming soon.' : ['gameboy','nes','ymf278b','ymf262'].includes(currentChipKind) ? (currentChipKind==='nes'?'NES APU / FDS: pulse, triangle and optional FDS base-pitch notes, MIDI and Music Sheet. FDS modulation and envelope timing are not transcribed. Noise/DMC are omitted from scores; time-based modulation is approximate.': 'Game Boy DMG base-pitch Note-ish available for CH1/CH2 (square) and CH3 (wave); CH4 (noise) has no pitch, and length counter/CH1 sweep are not reconstructed. MIDI and LilyPond/Music Sheet base-pitch export available. SoundChip shows all four channels. Instrument lists written pulse, wave and noise settings per APU. Dual DMG playback and independent instrument analysis are available.') : ['okim6295','okim6258','segapcm'].includes(currentChipKind) ? `${currentChipKind.toUpperCase()} analysis and instrument editing: Support coming soon.` : '';
+  if(currentChipKind==='mixed')message='Multi-chip playback: '+mixedPlaybackParts.map(p=>p.chips.join(' + ')).join(' + ')+'. Source mute and WAV export are available. Per-chip Instrument tabs are available for supported chips. Combined scores and seek checkpoints are unavailable.';
   if (noteishHeader.okim6295Clock) message += ' OKIM6295: embedded sample ROM playback; normal seeking, no sample/voice export.';
   if (currentChipKind!=='mixed' && noteishHeader.okim6258Clock) message += ' OKIM6258 Sample Explorer: timed ADPCM captures, JSON and stereo preview / WAV (up to 10 s); preview restarts divider phase.';
   if (currentChipKind!=='mixed' && noteishHeader.segaPcmClock) message += ' Sega PCM Sample Explorer: enable-time ROM snapshots, waveform, raw PCM and one-pass stereo preview / WAV; loops and live changes are not replayed.';
@@ -2908,8 +3277,8 @@ function updateChipSupport() {
   exportAllOpmButton.hidden = exportOpmButton.hidden = currentChipKind !== 'ym2151';
   exportAllOpmButton.disabled = exportOpmButton.disabled = currentChipKind !== 'ym2151' || !currentBuffer;
   const sbi = ['ym3526','ym3812','y8950','ymf262','ymf278b'].includes(currentChipKind);
-  sampleTab.textContent = currentChipKind === 'gameboy' ? 'GB Info' : 'Sample Explorer';
-  sampleExplorer.setChip?.(currentChipKind);
+  sampleTab.textContent = 'Sample Explorer';
+
   const ay = currentChipKind === 'ay8910';
   const opll = currentChipKind === 'ym2413';
   const opl = isOpl(currentChipKind);
@@ -2936,9 +3305,13 @@ function updateChipSupport() {
   }
   const playbackOnly = ['mixed', 'wonderswan', 'huc6280', 'okim6295', 'okim6258', 'msx', 'y8950', 'ymf278b', 'ym3526', 'ym3812', 'ymf262', 'segapcm', 'ym2151', 'ym2413', 'nes', 'gameboy'].includes(currentChipKind) || ay;
   for (const tab of [operatorInfoTab, noteishTab, tfiInfoTab, sampleTab]) {
-    tab.disabled = !((['ymf278b','gameboy','wonderswan'].includes(currentChipKind) || (['segapcm', 'ym2151', 'okim6258'].includes(currentChipKind) && (noteishHeader.segaPcmClock || noteishHeader.okim6258Clock))) && tab === sampleTab) && playbackOnly && !((ay || opll || opl || currentChipKind === 'ym2151') && tab === operatorInfoTab) && !((currentChipKind === 'ym2151' && (tab === noteishTab || tab === tfiInfoTab)) || ((ay || opll || opl || ['msx','wonderswan','huc6280','gameboy','nes','ymf278b','ymf262'].includes(currentChipKind)) && tab === noteishTab));
+    tab.disabled = !((['ymf278b','wonderswan'].includes(currentChipKind) || (['segapcm', 'ym2151', 'okim6258'].includes(currentChipKind) && (noteishHeader.segaPcmClock || noteishHeader.okim6258Clock))) && tab === sampleTab) && playbackOnly && !((ay || opll || opl || ['ym2151','gameboy'].includes(currentChipKind)) && tab === operatorInfoTab) && !((currentChipKind === 'ym2151' && (tab === noteishTab || tab === tfiInfoTab)) || ((ay || opll || opl || ['msx','wonderswan','huc6280','gameboy','nes','ymf278b','ymf262'].includes(currentChipKind)) && tab === noteishTab));
+    if (tab === operatorInfoTab && currentChipKind === 'mixed' && tab.dataset?.noMonitor === 'false') tab.disabled = false;
     if (tab === operatorInfoTab && tab.dataset?.noMonitor === 'true') tab.disabled = true;
     if (sbi && tab === tfiInfoTab) tab.disabled = !currentBuffer || !!(noteishHeader[currentChipKind+'Clock'] & 0xc0000000);
+    if (tab === tfiInfoTab && tfiInfoTab.dataset?.instrumentKind !== undefined) {
+      tab.disabled = !currentBuffer || !tfiInfoTab.dataset.instrumentKind;
+    } else if (tab === tfiInfoTab && currentChipKind === 'gameboy') tab.disabled = !currentBuffer;
     tab.title = tab.disabled ? 'Support coming soon.' : '';
   }
   for (const button of [exportMidiButton, exportMmlButton, exportSnapshotTfiButton,
@@ -2988,10 +3361,11 @@ function updateChipSupport() {
   ym2413MonitorRoot.hidden = !(opll || ayWithOpll);
   if (keepMainTab || document.getElementById('exportTab').ariaSelected === 'true') return;
   if (sheetMusicTab.getAttribute('aria-selected') === 'true' && !sheetMusicTab.disabled) return;
-  if (sbi && !tfiInfoTab.disabled && tfiInfoTab.getAttribute('aria-selected') === 'true') return;
+  if (!tfiInfoTab.disabled && tfiInfoTab.getAttribute('aria-selected') === 'true') return;
   if (!sampleTab.disabled && sampleTab.getAttribute('aria-selected') === 'true') return;
+  if (currentChipKind === 'mixed' && !operatorInfoTab.disabled && operatorInfoTab.getAttribute('aria-selected') === 'true') return;
   if (['mixed', 'okim6295', 'okim6258', 'segapcm'].includes(currentChipKind)) setOutputTab('parsed-output');
-  else if (['msx','wonderswan','huc6280','gameboy','nes','ymf278b','ymf262'].includes(currentChipKind) && noteishTab.getAttribute('aria-selected') !== 'true' && parsedOutputTab.getAttribute('aria-selected') !== 'true' && !(currentChipKind === 'ymf278b' && sampleTab.getAttribute('aria-selected') === 'true')) setOutputTab('noteish');
+  else if (['msx','wonderswan','huc6280','gameboy','nes','ymf278b','ymf262'].includes(currentChipKind) && noteishTab.getAttribute('aria-selected') !== 'true' && parsedOutputTab.getAttribute('aria-selected') !== 'true' && !(currentChipKind === 'gameboy' && operatorInfoTab.getAttribute('aria-selected') === 'true') && !(currentChipKind === 'ymf278b' && sampleTab.getAttribute('aria-selected') === 'true')) setOutputTab('noteish');
   else if (((ay || opll || opl || currentChipKind === 'ym2151') && noteishTab.getAttribute('aria-selected') !== 'true' && (tfiInfoTab.disabled || tfiInfoTab.getAttribute('aria-selected') !== 'true')) && operatorInfoTab.getAttribute('aria-selected') !== 'true' && parsedOutputTab.getAttribute('aria-selected') !== 'true') setOutputTab('operator-info');
 }
 
@@ -3407,6 +3781,7 @@ async function loadTrackFile(file, preserveEditor, requestedAt, progress) {
   renderSeekPosition(0);
   metadataOutput.textContent = "Loading metadata…";
   sampleExplorer.reset();
+  resetInstrumentTabs();
   timelineSeekController?.abort();
   songTimeline.clear();
   timelineSelectionPending = true;
@@ -3628,6 +4003,20 @@ async function loadTrackFile(file, preserveEditor, requestedAt, progress) {
   }
   currentChipKind = nextChipKind;
   noteishHeader = vgm.header;
+  inspectedPsg = null;
+  dualPsg = (vgm.header.psgClock & 0x40000000) ? mixedPlaybackParts.filter(p => p.chips.includes('psg'))
+    .map((part,i) => ({part,label:'Sega PSG '+(i+1),monitor:createPsgMonitor('psg'),mutes:Array(4).fill(false)})) : [];
+  dualDmg = (vgm.header.gameBoyDmgClock & 0x40000000) ? mixedPlaybackParts.filter(p => p.kind === 'gameboy')
+    .map(part => ({part,monitor:createGameboyMonitor(),mutes:Array(4).fill(false)})) : [];
+  inspectedDmg = null;
+  dualFm = dualOpnParts(mixedPlaybackParts).map(part => ({
+    part, label:(part.kind === 'ym2610' && (part.header.ym2610Clock & 0x80000000) ? 'YM2610B' : part.kind.toUpperCase()) + ' ' + ((part.chipIndex ?? 0)+1),
+    muted:Array(6).fill(false), ssgMuted:part.kind !== 'ym2612' ? Array(3).fill(false) : null,
+    sampleMutes:part.kind !== 'ym2612' ? Array(7).fill(false) : null,
+  }));
+  inspectedFm = 0;
+  resetDualFmRegisters();
+  if (dualFm.length || dualDmg.length || dualPsg.length) renderMonitorToggles();
   if (currentChipKind === 'pokey') {
     pokeyChannelMutes.length = vgm.header.pokeyClock & 0x40000000 ? 8 : 4;
     pokeyChannelMutes.fill(false);
@@ -3641,6 +4030,7 @@ async function loadTrackFile(file, preserveEditor, requestedAt, progress) {
   }
   if (["msx","y8950","wonderswan","huc6280","gameboy","nes","ymf278b","ymf262","ym3526","ym3812"].includes(currentChipKind)) resetApuNoteChannels();
   currentHasPcm = Boolean(vgm.header.rf5c164Clock);
+  if (currentChipKind === 'gameboy') renderMonitorToggles();
   currentPcmClock = vgm.header.rf5c164Clock & 0x3fffffff;
   channelMonitor = createChannelMonitorState();
   monitorFrequencyHigh = [0, 0];
@@ -3681,9 +4071,10 @@ async function loadTrackFile(file, preserveEditor, requestedAt, progress) {
     lastParseInfo.commandFormat = "VGM (normalized from S98)";
   }
   extractedTfiPatches = ["pokey", "mixed", "wonderswan", "huc6280", "okim6295", "okim6258", "msx", "y8950", "ymf278b", "ym3526", "ym3812", "ymf262", "segapcm", "nes", "gameboy", "ym2151", "ym2413", "ay8910"].includes(currentChipKind) ? [] : extractTfiPatchesFromVgm(buffer);
-  tfiInfo.loadVgm(currentChipKind === 'pokey' ? null : buffer, file.name);
-  opmInfo.loadVgm(currentChipKind === 'ym2151' ? buffer : null);
-  sbiInfo.loadVgm(['ym3526','ym3812','y8950','ymf262','ymf278b'].includes(currentChipKind) ? buffer : null);
+  tfiInfo.loadVgm(null,file.name);
+  opmInfo.loadVgm(null);
+  sbiInfo.loadVgm(null);
+  configureInstrumentTabs(vgm,buffer,file.name);
   if (tfiInfoTab.getAttribute('aria-selected') === 'true') setOutputTab('tfi-info');
   exportAllTfiButton.disabled = extractedTfiPatches.length === 0;
   exportAllVgiButton.disabled = extractedTfiPatches.length === 0;
@@ -4057,7 +4448,26 @@ playbackSeek.addEventListener("change", async () => {
   timelineSelectionPending = true;
   songTimeline.cursor(sample, false);
   if (wasPlaying) await playCurrentVgm(sample);
-  else updatePlaybackButtons(player?.stats() || {});
+  else if (player?.isPaused() && ((currentChipKind === 'mixed' && (dualFm.length || dualDmg.length || dualPsg.length)) || ['ym2203', 'ym2608', 'ym2610', 'gameboy'].includes(currentChipKind) ||
+           (currentChipKind === 'ym2612' && currentHasPcm) ||
+           ((noteishHeader.psgClock & 0x3fffffff) && ['ym2612', 'ym2151'].includes(currentChipKind)))) {
+    // The suspended output stream still contains audio from the old position.
+    // Keep the cursor pending so Resume builds a fresh stream at this sample.
+    stopActiveStream();
+    const controller = new AbortController();
+    timelineSeekController = controller;
+    playbackSeek.disabled = true;
+    try {
+      await seekPlayback(player, sample, {signal:controller.signal});
+      requestChannelMonitorRender();
+      requestNoteishRender();
+    } catch (error) {
+      if (error.name !== 'AbortError') reportPlaybackError(error);
+    } finally {
+      if (timelineSeekController === controller) timelineSeekController = null;
+      updatePlaybackButtons(player?.stats() || {});
+    }
+  } else updatePlaybackButtons(player?.stats() || {});
 });
 
 playButton.addEventListener("click", async () => {
@@ -4165,6 +4575,9 @@ const fm2612Voice = mountFm2612VoiceView(document.getElementById('fm2612Voice'),
   const name = lastLoadedFileName.replace(/\.[^.]+$/, '') + '_ch' + (channel.channel + 1) + '.tfi';
   const bytes = createTfiFromPreset(createTfiPresetFromChannelSnapshot(channel));
   setOutputTab('tfi-info');
+  if (currentChipKind === 'mixed' && dualFm.length) {
+    [...instrumentTabs.children].find(tab => tab.textContent === dualFm[inspectedFm].label)?.click();
+  }
   tfiInfo.openSnapshot(name, bytes);
 });
 const opmMonitorRoot = document.createElement('section');
@@ -4223,44 +4636,183 @@ chipMonitorStorage.append(ym2413MonitorRoot);
 ym2413MonitorRoot.hidden = true;
 const ym2413Monitor = mountYm2413Monitor(ym2413MonitorRoot);
 // Keep the mounted monitors (and their register state) when changing tabs.
+// Each chip has six rhythm or ADPCM-A outputs and one Delta-T output.
+function applyDualSampleMute(index,ch,muted) {
+  const device = engine.fmInstances[index].engine;
+  if (ch === 6) device.setAdpcmBMuted(muted);
+  else device.setAdpcmAChannelMuted(ch,muted);
+}
+
+function toggleDualSampleMute(index,ch) {
+  const fm = dualFm[index];
+  const muted = !fm.sampleMutes[ch];
+  if (engine && fm.engine === engine) applyDualSampleMute(index,ch,muted);
+  fm.sampleMutes[ch] = muted;
+  if (ch === 6) {
+    fm.deltaButton.setAttribute('aria-pressed',String(muted));
+    fm.deltaButton.classList.toggle('is-muted',muted);
+  } else if (index === inspectedFm) renderAdpcmMonitor(fm.adpcm,fm.sampleMutes);
+  renderMonitorToggles();
+  flushPendingAudio();
+}
+
+function toggleDualFmChannel(index,ch,ssg = false) {
+  const fm = dualFm[index];
+  const states = ssg ? fm.ssgMuted : fm.muted;
+  const muted = !states[ch];
+  if (engine && fm.engine === engine) {
+    if (ssg) engine.setInstanceSsgChannelMuted(index,ch,muted);
+    else engine.setFmChannelMuted(index,ch,muted);
+  }
+  states[ch] = muted;
+  if (ssg && index === inspectedFm) renderPsgMonitor(fm.ssg,states,fm.label);
+  const button = chipMonitorPanels.querySelector('[data-dual-fm-control="' + index + '-' + ch + '"]');
+  if (!ssg && button) {
+    button.setAttribute('aria-pressed',String(muted));
+    button.classList.toggle('is-muted',muted);
+  }
+  renderMonitorToggles();
+  flushPendingAudio();
+}
+
 function configureChipMonitorTabs() {
   const previous = chipMonitorTabs.querySelector('[aria-selected="true"]')?.textContent;
   const psg = document.getElementById('psgMonitor');
   const pcm = document.getElementById('pcmMonitor');
-  chipMonitorStorage.append(opnMonitorRoot, psg, pcm, opmMonitorRoot, ayMonitorRoot, ym2413MonitorRoot, oplMonitorRoot);
+  const rhythm = document.getElementById('rhythmMonitor');
+  const adpcmA = document.getElementById('adpcmAMonitor');
+  const adpcmB = document.getElementById('adpcmBMonitor');
+  const gameboy = document.getElementById('gameboyWaveMonitor');
+  const voice = document.getElementById('fm2612Voice');
+  opnMonitorRoot.append(voice);
+  chipMonitorStorage.append(gameboy, opnMonitorRoot, psg, pcm, rhythm, adpcmA, adpcmB, opmMonitorRoot, ayMonitorRoot, ym2413MonitorRoot, oplMonitorRoot);
   chipMonitorTabs.replaceChildren();
   chipMonitorPanels.replaceChildren();
-  function add(label, ...monitors) {
-    const index = chipMonitorTabs.childElementCount;
+  function addMonitorTab(tabList, panels, prefix, label, ...monitors) {
+    const index = tabList.childElementCount;
     const panel = document.createElement('div');
-    panel.id = 'chipMonitorPanel' + index;
+    panel.id = prefix + 'Panel' + index;
     panel.setAttribute('role','tabpanel');
     panel.hidden = true;
     panel.append(...monitors);
     const tab = document.createElement('button');
     tab.type = 'button';
     tab.className = 'tab-button';
-    tab.id = 'chipMonitorTab' + index;
+    tab.id = prefix + 'Tab' + index;
     tab.textContent = label;
     tab.setAttribute('role','tab');
     tab.setAttribute('aria-controls',panel.id);
     panel.setAttribute('aria-labelledby',tab.id);
     tab.onclick = () => {
-      for (const button of chipMonitorTabs.children) {
+      requestChannelMonitorRender();
+      for (const button of tabList.children) {
         const selected = button === tab;
         button.ariaSelected = String(selected);
         button.tabIndex = selected ? 0 : -1;
         document.getElementById(button.getAttribute('aria-controls')).hidden = !selected;
       }
     };
-    chipMonitorTabs.append(tab);
-    chipMonitorPanels.append(panel);
+    tabList.append(tab);
+    panels.append(panel);
+    return tab;
   }
+  const add = (label, ...monitors) => addMonitorTab(chipMonitorTabs, chipMonitorPanels, 'chipMonitor', label, ...monitors);
   const kind = currentChipKind;
   const has = key => Boolean(noteishHeader[key+'Clock'] & 0x3fffffff);
   if (['ym2203','ym2608','ym2610'].includes(kind)) {
-    add(kind === 'ym2610' && (noteishHeader.ym2610Clock & 0x80000000) ? 'YM2610B' : kind.toUpperCase(), opnMonitorRoot, psg);
+    const opna = kind === 'ym2608';
+    const label = kind === 'ym2610' && (noteishHeader.ym2610Clock & 0x80000000) ? 'YM2610B' : kind.toUpperCase();
+    const sections = document.createElement('div');
+    sections.className = 'tabbar';
+    sections.setAttribute('role', 'tablist');
+    sections.setAttribute('aria-label', label + ' sections');
+    sections.addEventListener('keydown', navigateTabList);
+    const panels = document.createElement('div');
+    add(label, sections, panels);
+    const fmTab = addMonitorTab(sections, panels, 'opnSection', 'FM', opnMonitorRoot);
+    addMonitorTab(sections, panels, 'opnSection', 'SSG', psg);
+    if (kind !== 'ym2203') {
+      addMonitorTab(sections, panels, 'opnSection', opna ? 'Rhythm' : 'ADPCM-A', opna ? rhythm : adpcmA);
+      addMonitorTab(sections, panels, 'opnSection', 'ADPCM-B', adpcmB);
+    }
+    fmTab.click();
   } else if (kind === 'ym2612' && has('ym2612')) add('YM2612', opnMonitorRoot);
+  if (kind === 'mixed') dualFm.forEach((fm,index) => {
+    const section = document.createElement('section');
+    const controls = document.createElement('div');
+    controls.className = 'channel-row';
+    fm.muted.forEach((_,ch) => {
+      if (fm.channels[ch].unavailable) return;
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'channel-toggle';
+      button.textContent = 'Mute CH' + (ch + 1);
+      button.setAttribute('aria-pressed',String(fm.muted[ch]));
+      button.dataset.dualFmControl = index + '-' + ch;
+      button.onclick = () => toggleDualFmChannel(index,ch);
+      controls.append(button);
+    });
+    section.append(controls);
+    const ssgPanel = document.createElement('div');
+    const samplePanel = document.createElement('div'), deltaPanel = document.createElement('div');
+    let tab;
+    if (fm.ssgMuted) {
+      const sections = document.createElement('div'), panels = document.createElement('div');
+      sections.className = 'tabbar';
+      sections.setAttribute('role','tablist');
+      sections.setAttribute('aria-label',fm.label + ' sections');
+      sections.addEventListener('keydown',navigateTabList);
+      tab = add(fm.label,sections,panels);
+      const prefix = 'dualOpn' + index;
+      const fmTab = addMonitorTab(sections,panels,prefix,'FM',section);
+      addMonitorTab(sections,panels,prefix,'SSG',ssgPanel);
+      addMonitorTab(sections,panels,prefix,fm.part.kind === 'ym2608' ? 'Rhythm' : 'ADPCM-A',samplePanel);
+      addMonitorTab(sections,panels,prefix,'ADPCM-B',deltaPanel);
+      const delta = document.createElement('button');
+      delta.type = 'button';
+      delta.className = 'channel-toggle';
+      delta.textContent = 'Mute ADPCM-B';
+      delta.setAttribute('aria-pressed',String(fm.sampleMutes[6]));
+      delta.onclick = () => toggleDualSampleMute(index,6);
+      fm.deltaButton = delta;
+      deltaPanel.append(delta);
+      fmTab.click();
+    } else tab = add(fm.label,section);
+    tab.addEventListener('click',() => {
+      inspectedPsg = null;
+      inspectedDmg = null;
+      inspectedFm = index;
+      section.append(voice);
+      if (fm.ssg) {
+        ssgPanel.append(psg);
+        samplePanel.append(fm.part.kind === 'ym2608' ? rhythm : adpcmA);
+        deltaPanel.append(adpcmB);
+        renderAdpcmMonitor(fm.adpcm,fm.sampleMutes);
+        renderPsgMonitor(fm.ssg,fm.ssgMuted,fm.label);
+      }
+      fm2612Voice.update(fm.channels,fm.part.kind);
+    });
+  });
+  if (kind === 'mixed') dualPsg.forEach((chip,index) => {
+    const panel = document.createElement('div');
+    add(chip.label,panel).addEventListener('click',() => {
+      inspectedDmg = null;
+      inspectedPsg = index;
+      panel.append(psg);
+      renderPsgMonitor(chip.monitor,chip.mutes,chip.label);
+    });
+  });
+  if (kind === 'mixed') dualDmg.forEach((dmg,index) => {
+    const panel = document.createElement('div');
+    const tab = add('Game Boy DMG ' + (index+1),panel);
+    tab.addEventListener('click',() => {
+      inspectedPsg = null;
+      inspectedDmg = index;
+      panel.append(gameboy);
+      renderDmgView(dmg.monitor,dmg.mutes,index);
+    });
+  });
+  if (kind === 'gameboy') add('Game Boy DMG', gameboy);
   if (kind === 'ym2151') add(noteishHeader.ym2151Clock & 0x80000000 ? 'YM2164' : 'YM2151', opmMonitorRoot);
   if (['ym2612','ym2151'].includes(kind) && has('psg')) add('Sega PSG', psg);
   if (kind === 'ym2612' && currentHasPcm) add('RF5C164', pcm);
@@ -4275,6 +4827,83 @@ function configureChipMonitorTabs() {
   operatorInfoTab.dataset.noMonitor = String(!chipMonitorTabs.childElementCount);
   const selected = [...chipMonitorTabs.children].find(tab => tab.textContent === previous);
   (selected ?? chipMonitorTabs.firstElementChild)?.click();
+}
+
+const instrumentTabs = document.getElementById('instrumentChipTabs');
+instrumentTabs.addEventListener('keydown', navigateTabList);
+const gbInstrumentViews = [];
+function resetInstrumentTabs() {
+  for (const view of gbInstrumentViews) view.reset();
+  gbInstrumentViews.length = 0;
+  instrumentTabs.replaceChildren();
+  document.getElementById('gameboyInstruments').replaceChildren();
+  delete tfiInfoTab.dataset.instrumentKind;
+}
+
+function configureInstrumentTabs(vgm, buffer, filename) {
+  resetInstrumentTabs();
+  const header = vgm.header;
+  const opns = ['ym2612','ym2203','ym2608','ym2610'];
+  const oplKinds = ['ym3526','ym3812','y8950','ymf262','ymf278b'];
+  const kinds = [...opns,'ym2151',...oplKinds].filter(kind => {
+    const clock = header[kind+'Clock'];
+    if (!(clock & 0x3fffffff) || ((clock & 0x40000000) && !['ym2612','ym2608','ym2610'].includes(kind))) return false;
+    if (oplKinds.includes(kind)) return !(clock & 0x80000000) &&
+      [...opns,'ym2151','ym2413',...oplKinds].every(k => k === kind || !header[k+'Clock']);
+    return true;
+  });
+  const entries = kinds.map(kind => ({
+    kind, label:kind === 'ym2151' && (header.ym2151Clock & 0x80000000) ? 'YM2164' :
+      kind === 'ym2610' && (header.ym2610Clock & 0x80000000) ? 'YM2610B' : kind.toUpperCase(),
+    panel:kind === 'ym2151' ? 'opmInfoPanel' : oplKinds.includes(kind) ? 'sbiInfoPanel' : 'tfiInfoPanel'
+  }));
+  for (const entry of [...entries]) {
+    if (opns.includes(entry.kind) && (header[entry.kind+'Clock'] & 0x40000000)) {
+      entries.splice(entries.indexOf(entry)+1,0,{...entry,label:entry.label+' 2',instance:entry.kind+'-2'});
+      entry.label += ' 1';
+    }
+  }
+  if ((header.gameBoyDmgClock & 0x3fffffff) && vgm.analyzeCommandUsage().has('0xb3')) {
+    const count = header.gameBoyDmgClock & 0x40000000 ? 2 : 1;
+    for (let i=0;i<count;i++) {
+      const panel = document.createElement('section');
+      panel.id = 'gbInstrument' + i;
+      panel.setAttribute('role','tabpanel');
+      document.getElementById('gameboyInstruments').append(panel);
+      const view = mountSampleExplorer(panel, () => buffer, () => ({chipIndex:i}));
+      view.setChip('gameboy');
+      gbInstrumentViews.push(view);
+      entries.push({kind:'gameboy',label:count===1?'Game Boy DMG':'Game Boy DMG '+(i+1),panel:panel.id});
+    }
+  }
+  if (kinds.some(k=>opns.includes(k))) tfiInfo.loadVgm(buffer,filename);
+  if (kinds.includes('ym2151')) opmInfo.loadVgm(buffer);
+  if (kinds.some(k=>oplKinds.includes(k))) sbiInfo.loadVgm(buffer);
+  function select(entry) {
+    tfiInfoTab.dataset.instrumentKind = entry.kind;
+    for (const button of instrumentTabs.children) {
+      const selected = button.textContent === entry.label;
+      button.ariaSelected = String(selected);
+      button.tabIndex = selected ? 0 : -1;
+      if (selected) document.getElementById(entry.panel).setAttribute('aria-labelledby',button.id);
+    }
+    for (const panel of document.getElementById('gameboyInstruments').children) panel.hidden = panel.id !== entry.panel;
+    if (opns.includes(entry.kind)) tfiInfo.selectChip(entry.instance ?? entry.kind);
+  }
+  for (const entry of entries) {
+    const tab = document.createElement('button');
+    tab.id = 'instrumentChip' + instrumentTabs.childElementCount;
+    tab.type = 'button';
+    tab.className = 'tab-button';
+    tab.setAttribute('role','tab');
+    tab.setAttribute('aria-controls',entry.panel);
+    tab.textContent = entry.label;
+    tab.onclick = () => {select(entry);setOutputTab('tfi-info');};
+    instrumentTabs.append(tab);
+  }
+  instrumentTabs.hidden = !entries.length;
+  if (entries.length) select(entries[0]);
+  else tfiInfoTab.dataset.instrumentKind = '';
 }
 
 const opmInfo = mountOpmInfo({root:document.getElementById('opmInfoPanel'),onStatus:setStatus});
@@ -4308,7 +4937,7 @@ function setOutputTab(tabName) {
     if (spcView.active && !['parsed-output', 'samples', 'noteish', 'sheet-music'].includes(tabName)) tabName = 'parsed-output';
     if (!currentBuffer && !spcView.active) tabName = 'parsed-output';
     if (currentChipKind === 'pokey' && !['operator-info', 'parsed-output'].includes(tabName)) tabName = 'operator-info';
-    if (!(sbi && tabName === 'tfi-info' && currentBuffer && !(noteishHeader[currentChipKind+'Clock'] & 0xc0000000)) && !((["ymf278b","gameboy","wonderswan"].includes(currentChipKind) || (["segapcm", "ym2151", "okim6258"].includes(currentChipKind) && (noteishHeader.segaPcmClock || noteishHeader.okim6258Clock))) && tabName === "samples") && !(tabName === "sheet-music" && currentBuffer && (midiExportAvailable || (currentChipKind === 'ymf262' && !(noteishHeader.ymf262Clock & 0xc0000000)))) && ((["mixed", "okim6295", "okim6258", "segapcm"].includes(currentChipKind) && tabName !== "parsed-output") || (["msx","wonderswan","huc6280","gameboy","nes","ymf278b","ymf262"].includes(currentChipKind) && !["parsed-output", "noteish"].includes(tabName)) || (currentChipKind === "ay8910" && !["operator-info", "parsed-output", "noteish"].includes(tabName)) || ((currentChipKind === "ym2413" || isOpl(currentChipKind)) && !["operator-info", "parsed-output", "noteish"].includes(tabName)) || (currentChipKind === "ym2151" && !["operator-info", "parsed-output", "noteish", "tfi-info"].includes(tabName)))) {
+    if (!(currentChipKind === 'mixed' && tabName === 'operator-info' && operatorInfoTab.dataset?.noMonitor === 'false') && !(tabName === 'tfi-info' && currentBuffer && (tfiInfoTab.dataset?.instrumentKind || currentChipKind === 'gameboy')) && !(sbi && tabName === 'tfi-info' && currentBuffer && !(noteishHeader[currentChipKind+'Clock'] & 0xc0000000)) && !((["ymf278b","wonderswan"].includes(currentChipKind) || (["segapcm", "ym2151", "okim6258"].includes(currentChipKind) && (noteishHeader.segaPcmClock || noteishHeader.okim6258Clock))) && tabName === "samples") && !(tabName === "sheet-music" && currentBuffer && (midiExportAvailable || (currentChipKind === 'ymf262' && !(noteishHeader.ymf262Clock & 0xc0000000)))) && ((["mixed", "okim6295", "okim6258", "segapcm"].includes(currentChipKind) && tabName !== "parsed-output") || (["msx","wonderswan","huc6280","gameboy","nes","ymf278b","ymf262"].includes(currentChipKind) && !(currentChipKind === 'gameboy' && tabName === 'operator-info') && !["parsed-output", "noteish"].includes(tabName)) || (currentChipKind === "ay8910" && !["operator-info", "parsed-output", "noteish"].includes(tabName)) || ((currentChipKind === "ym2413" || isOpl(currentChipKind)) && !["operator-info", "parsed-output", "noteish"].includes(tabName)) || (currentChipKind === "ym2151" && !["operator-info", "parsed-output", "noteish", "tfi-info"].includes(tabName)))) {
       setStatus('Analysis and instrument editing: Support coming soon.');
       tabName = "parsed-output";
     }
@@ -4329,10 +4958,16 @@ function setOutputTab(tabName) {
   musicSheet?.setVisible(tabName === 'sheet-music');
   sheetMusicTab.setAttribute('aria-selected', String(tabName === 'sheet-music'));
   sheetMusicTab.tabIndex = tabName === 'sheet-music' ? 0 : -1;
-  tfiInfo.setVisible(tabName === "tfi-info" && currentChipKind !== "ym2151" && !sbi);
-  opmInfo.setVisible(tabName === "tfi-info" && currentChipKind === "ym2151");
-  sbiInfo.setVisible(tabName === 'tfi-info' && sbi);
-  tfiInfoTab.setAttribute("aria-controls", sbi ? 'sbiInfoPanel' : currentChipKind === "ym2151" ? "opmInfoPanel" : "tfiInfoPanel");
+  const instrument = tabName === 'tfi-info';
+  const kind = tfiInfoTab.dataset?.instrumentKind ?? currentChipKind;
+  const gb = kind === 'gameboy';
+  const oplInstrument = ['ym3526','ym3812','y8950','ymf262','ymf278b'].includes(kind);
+  tfiInfo.setVisible(instrument && !gb && kind !== 'ym2151' && !oplInstrument);
+  opmInfo.setVisible(instrument && kind === 'ym2151');
+  sbiInfo.setVisible(instrument && oplInstrument);
+  document.getElementById('instrumentPanel').hidden = !instrument;
+  document.getElementById('gameboyInstruments').hidden = !instrument || !gb;
+  tfiInfoTab.setAttribute('aria-controls','instrumentPanel');
   tfiInfoTab.setAttribute("aria-selected", String(tabName === "tfi-info"));
   tfiInfoTab.tabIndex = tabName === "tfi-info" ? 0 : -1;
   samplePanel.hidden = tabName !== 'samples' || spcView.active;

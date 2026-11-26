@@ -1,3 +1,4 @@
+import {opnaAddressUnit} from './opn_adpcm_monitor.js';
 import {createGameboyVoices, gameboyVoiceJson} from './gameboy_voices.js';
 import {createGameboyWaves, gameboyWaveJson} from './gameboy_waves.js';
 import {createWonderSwanWaves, wonderswanWaveJson} from './wonderswan_waves.js?v=wonderswan-voice-samples-1';
@@ -9,7 +10,7 @@ import {createStoredZipBytes} from './stored_zip.js';
 import {createDacSamples} from './dac_samples.js';
 import {pwmCaptureJson,createPwmSamples} from './pwm_samples.js';
 import {createSegaPcmSamples} from './segapcm_samples.js';
-import {createRf5c164Samples} from './rf5c164_samples.js';
+import {createRf5c164Samples} from './rf5c164_samples.js?v=pcm-jump-1';
 import {Ym2612VGM} from './js/ym2612vgm.js?v=pokey-vgm-1';
 
 // One pass; never expands the VGM loop. Memory is resolved at each key-on.
@@ -32,8 +33,9 @@ export async function extractSamples(source, { signal, roms = {} } = {}) {
   let retainedBytes = 0;
   const memories = [0, 1, 2].map(() => ({ data: new Uint8Array(0), present: new Uint8Array(0), generation: 0 }));
   const opna = new Uint8Array(16);
+  opna[12] = opna[13] = 255;
   let prescale = 6, writeAddress = 0, pendingWriteStart = false;
-  const opnaUnit = () => opna[1] & 3 ? 32 : 4;
+  const opnaUnit = () => opnaAddressUnit(opna[1]);
   const bregs = new Uint8Array(16);
   let time = 0;
   if (parser.header.ym2610Clock & 0x40000000) warnings.add('Second YM2610 chip is not analyzed.');
@@ -74,7 +76,7 @@ export async function extractSamples(source, { signal, roms = {} } = {}) {
     gb.apply(e, time);
     gbVoices.apply(e, time);
     opl4.apply(e, time);
-    rf.apply(e, time);
+    rf.apply(e, time, parser.position);
     sega.apply(e, time);
     if (e.type === 'ym2610-rom-data' || e.type === 'ym2608-adpcm-b-data') {
       if (e.chipIndex) { warnings.add('Second chip sample memory is not analyzed.'); return; }
@@ -124,7 +126,7 @@ export async function extractSamples(source, { signal, roms = {} } = {}) {
         warnings.add('YM2608 ADPCM-B limit-wrapped playback is not extracted.'); return;
       }
       const deltaN = opna[9] | opna[10] << 8, chipClock = parser.header.ym2608Clock & 0x3fffffff;
-      begin('adpcm-b', 1, rawStart, rawEnd, { chip: 'ym2608', clock: chipClock,
+      begin('adpcm-b', 1, rawStart, rawEnd, { commandEnd:parser.position, chip: 'ym2608', clock: chipClock,
         addressUnit: unit, memoryMode: opna[1] & 3, limit, prescale,
         level: opna[11], pan: opna[1] >> 6, deltaN,
         rate: chipClock / (24 * prescale) * deltaN / 65536,
@@ -142,7 +144,7 @@ export async function extractSamples(source, { signal, roms = {} } = {}) {
       if (!(v & 128) || (v & 1)) return;
       const deltaN = bregs[9] | bregs[10] << 8;
       begin('adpcm-b', 1, bregs[2] | bregs[3] << 8, bregs[4] | bregs[5] << 8,
-        { level: bregs[11], pan: bregs[1] >> 6, deltaN,
+        { commandEnd:parser.position, level: bregs[11], pan: bregs[1] >> 6, deltaN,
           rate: clock / 144 * deltaN / 65536, loop: Boolean(v & 16), speakerOff: Boolean(v & 8) });
       return;
     }
@@ -155,7 +157,7 @@ export async function extractSamples(source, { signal, roms = {} } = {}) {
       if (v & 128) continue;
       begin('adpcm-a', ch + 1, regs[0x10 + ch] | regs[0x18 + ch] << 8,
         regs[0x20 + ch] | regs[0x28 + ch] << 8,
-        { level: regs[8 + ch] & 31, totalLevel: regs[1] & 63,
+        { commandEnd: parser.position, level: regs[8 + ch] & 31, totalLevel: regs[1] & 63,
           pan: regs[8 + ch] >> 6, rate: clock / 432, loop: false });
     }
   }

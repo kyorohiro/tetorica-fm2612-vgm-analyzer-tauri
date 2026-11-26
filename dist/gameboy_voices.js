@@ -1,7 +1,7 @@
 // Trigger-time register settings, not an emulation of envelope/sweep/length counters.
 const CHANNELS = [{channel:1,base:0,kind:'pulse'}, {channel:2,base:5,kind:'pulse'}, {channel:4,base:15,kind:'noise'}];
 const DUTY = [0.125,0.25,0.5,0.75];
-export function createGameboyVoices() {
+export function createGameboyVoices(chipIndex = 0) {
   const regs = Array(23).fill(null), active = new Map(), definitions = new Map();
   const samples = [], events = [], warnings = new Set();
   let writes = 0;
@@ -9,7 +9,7 @@ export function createGameboyVoices() {
     const e=active.get(channel);
     if(e){e.endTime=time;e.endReason=reason;active.delete(channel);}
   }
-  function record(config,time) {
+  function record(config,time,commandEnd) {
     const {base,channel,kind}=config;
     close(channel,time,'next trigger write');
     const env=regs[base+2], shape=regs[kind==='noise'?18:base+1];
@@ -28,7 +28,7 @@ export function createGameboyVoices() {
     if(events.length>=100000)throw new Error('Game Boy voice analysis exceeds 100,000 triggers');
     const initialRegisters=Object.fromEntries([...(channel===1?[0]:[]),base+1,base+2,base+3,base+4,20,21,22].map(r=>[r,regs[r]]));
     const lengthLoad=regs[base+1]===null?null:regs[base+1]&63;
-    const e={sampleId:sample.id,chip:'gameboy',kind,channel,startTime:time,endTime:null,
+    const e={commandEnd,sampleId:sample.id,chip:'gameboy',kind,channel,startTime:time,endTime:null,
       initialRegisters,length:{enabled:Boolean(regs[base+4]&64),lastWrittenLoad:lengthLoad},
       frequencyRegister:kind==='pulse'&&regs[base+3]!==null?regs[base+3]|((regs[base+4]&7)<<8):null,
       dacEnabled:Boolean(env&0xf8),powerEnabled:regs[22]===null?null:Boolean(regs[22]&128),changes:[]};
@@ -37,8 +37,8 @@ export function createGameboyVoices() {
     else {e.endTime=time;e.endReason='trigger with DAC or APU disabled';}
   }
   return {samples,events,warnings,
-    apply(e,time){
-      if(e.type!=='gameboy-dmg-write'||e.chipIndex)return;
+    apply(e,time,commandEnd){
+      if(e.type!=='gameboy-dmg-write'||(e.chipIndex ?? 0)!==chipIndex)return;
       const {register:r,value:v}=e;
       if(r>22)return;
       if(++writes>4000000)throw new Error('Game Boy voice analysis exceeds four million writes');
@@ -55,7 +55,7 @@ export function createGameboyVoices() {
         // Later writes, rather than guessed reset values/counter state, establish the next snapshot.
         regs.fill(null,0,22);return;
       }
-      if(trigger)record(config,time);
+      if(trigger)record(config,time,commandEnd);
       else if(config && r===config.base+2 && !(v&0xf8))close(config.channel,time,'DAC disabled write');
     },
     finish(time){for(const {channel} of CHANNELS)close(channel,time,'VGM end');},

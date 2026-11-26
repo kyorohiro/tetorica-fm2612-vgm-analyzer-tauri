@@ -184,6 +184,15 @@
         margin: 0 0 24px;
       }
 
+      #gameboyChannels {display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,14rem),1fr)); gap:.5rem}
+      #gameboyChannels dl {display:grid; grid-template-columns:1fr auto; gap:.2rem .5rem}
+      #gameboyChannels dd {margin:0; font-variant-numeric:tabular-nums}
+      #instrumentChipTabs[hidden], #psgMonitorGrid[hidden] { display: none; }
+      .psg-channels { border-collapse: collapse; width: 100%; margin-bottom: 1rem; font-variant-numeric: tabular-nums; }
+      .psg-channels :is(td, th) { text-align: left; padding: .4em; border-bottom: 1px solid var(--line); }
+      .psg-channels tbody th::before { content: ""; display: inline-block; width: .6em; height: .6em; margin-right: .45em; border-radius: 50%; background: #999; }
+      .psg-channels tr.is-active th::before { background: #318143; }
+
       .channel-card {
         border: 1px solid var(--line);
         border-radius: 18px;
@@ -240,6 +249,12 @@
         gap: 8px;
         margin: 0 0 14px;
       }
+
+      #dockChannels > summary { cursor: pointer; font-weight: bold; }
+      #dockChannels[open] > summary { margin-bottom: 6px; }
+      .monitor-toggles fieldset { flex: 1 1 100%; min-width: 0; margin: 0; padding: 3px 6px 5px; border: 1px solid #bca590; border-radius: 5px; }
+      .monitor-toggles legend { padding: 0 4px; font-size: .8rem; font-weight: bold; }
+      .monitor-toggles fieldset button { margin: 2px; }
 
       .spc-brr-waveform { flex-basis: 100%; width: 100%; min-width: 0; scroll-margin-bottom: 180px; }
       .spc-brr-waveform canvas { display: block; width: 100%; max-width: 900px; height: 150px; }
@@ -610,12 +625,12 @@
                 <thead><tr><th scope="col">Chip</th><th scope="col">Playback</th><th scope="col">Mute / volume</th><th scope="col">State display</th><th scope="col">Note-ish</th><th scope="col">Voice / Export</th></tr></thead>
                 <tbody>
                   <tr><th scope="row">YM2612</th><td>FM + DAC<br><small>Seek cache</small></td><td>6 FM CH, PSG</td><td>SoundChip</td><td>FM + PSG tone</td><td>TFI / VGI, audition, MIDI, MML, LilyPond</td></tr>
-                  <tr><th scope="row">YM2203</th><td>FM + SSG<br><small>Seek cache</small></td><td>3 FM CH, SSG</td><td>SoundChip / SSG</td><td>FM + SSG tone</td><td>TFI / VGI, audition, MIDI, MML, LilyPond</td></tr>
-                  <tr><th scope="row">YM2608</th><td>FM + SSG + Rhythm + ADPCM-B<br><small>Seek cache</small></td><td>FM CH mute. Gain and mute for FM, SSG, Rhythm and ADPCM-B</td><td>SoundChip / SSG</td><td>FM + SSG tone</td><td>TFI / VGI, audition, MIDI, MML, LilyPond</td></tr>
-                  <tr><th scope="row">YM2610 / YM2610B</th><td>FM + SSG + ADPCM-A/B<br><small>Seek cache</small></td><td>4 / 6 FM CH mute. Gain and mute for FM, SSG, ADPCM-A and ADPCM-B</td><td>SoundChip / SSG</td><td>FM + SSG tone</td><td>TFI / VGI, audition, MIDI, MML, LilyPond</td></tr>
+                  <tr><th scope="row">YM2203</th><td>FM + SSG<br><small>Seek cache</small></td><td>3 FM CH, SSG A/B/C and group</td><td>SoundChip / SSG</td><td>FM + SSG tone</td><td>TFI / VGI, audition, MIDI, MML, LilyPond</td></tr>
+                  <tr><th scope="row">YM2608</th><td>FM + SSG + Rhythm + ADPCM-B<br><small>Seek cache</small></td><td>FM CH, SSG A/B/C and individual rhythm instruments. Gain and mute for FM, SSG, Rhythm and ADPCM-B</td><td>SoundChip / SSG</td><td>FM + SSG tone</td><td>TFI / VGI, audition, MIDI, MML, LilyPond</td></tr>
+                  <tr><th scope="row">YM2610 / YM2610B</th><td>FM + SSG + ADPCM-A/B<br><small>Seek cache</small></td><td>4 / 6 FM CH, SSG A/B/C and six ADPCM-A channels. Gain and mute for FM, SSG, ADPCM-A and ADPCM-B</td><td>SoundChip / SSG</td><td>FM + SSG tone</td><td>TFI / VGI, audition, MIDI, MML, LilyPond</td></tr>
                   <tr><th scope="row">YM2151 / YM2164 (OPM / OPP)</th><td>8 FM CH<br><small>Seek cache</small></td><td>8 CH</td><td>SoundChip</td><td>FM</td><td>Instrument (OPM), audition, OPM ZIP / snapshot, approximate TFI ZIP / snapshot, MIDI, MXDRV MML / FM-only MDX file, LilyPond</td></tr>
-                  <tr><th scope="row">Sega PSG</th><td>Tone + noise<br><small>Seek cache: standalone / Genesis / YM2151 / YM2164</small></td><td>PSG group</td><td>PSG monitor</td><td>Tone</td><td>Tone MIDI / LilyPond; no FM voice export</td></tr>
-                  <tr><th scope="row">RF5C164</th><td>PCM (Mega-CD)<br><small>Seek cache: Genesis configuration</small></td><td>PCM group</td><td>PCM monitor / samples</td><td>—</td><td>Sample explorer</td></tr>
+                  <tr><th scope="row">Sega PSG</th><td>Single or dual SN76489 tone + noise<br><small>Seek cache: standalone / Genesis / YM2151 / YM2164</small></td><td>3 tones, noise and group mute per chip</td><td>One PSG monitor per chip</td><td>Tone</td><td>Single-chip tone MIDI / LilyPond; dual register playback and WAV export</td></tr>
+                  <tr><th scope="row">RF5C164</th><td>PCM (Mega-CD)<br><small>Seek cache: Genesis configuration</small></td><td>8 PCM channels and PCM group</td><td>PCM monitor / samples</td><td>—</td><td>Sample explorer</td></tr>
                   <tr><th scope="row">32X PWM</th><td>MAME-derived PWM<br><small>Seek cache: Genesis configuration</small></td><td>PWM group</td><td>PWM / samples</td><td>—</td><td>Sample explorer</td></tr>
                   <tr><th scope="row">YM2413</th><td>OPLL</td><td>9 CH; rhythm groups</td><td>SoundChip</td><td>FM (base pitch); rhythm channels have no single pitch</td><td>Base-pitch MIDI / LilyPond, MGSDRV MML (9-sound mode; rhythm omitted except Bass Drum); no FM voice snapshot export</td></tr>
                   <tr><th scope="row">YMF262 (OPL3)</th><td>2OP / 4OP / rhythm</td><td>18 CH; 4OP pairs / rhythm groups</td><td>Instrument (SBI)</td><td>Note-ish / Sheet Music base pitch (2OP / 4OP)</td><td>SBI 2OP / 4OP, audition, ZIP / snapshot; MIDI / MusicXML / LilyPond; rhythm omitted, 4OP pairs use leading CH; MIDI requires multi-port support; register JSON snapshot</td></tr>
@@ -633,7 +648,7 @@
                   <tr><th scope="row">OKIM6258</th><td>4-bit ADPCM; standalone or mixed<br><small>Seek cache: with YM2151 / YM2164 only</small></td><td>Chip (single toggle)</td><td>Sample Explorer</td><td>—</td><td>Timed ADPCM register captures / JSON / ZIP, decoded waveform, stereo preview / WAV (up to 10 s); play/stop intervals, not recovered instruments; preview restarts divider phase</td></tr>
                   <tr><th scope="row">Sega PCM (315-5218)</th><td>16-voice 8-bit PCM; standalone, mixed with Sega PSG, or mixed with YM2151 / YM2164<br><small>Seek cache: with YM2151 / YM2164 only</small></td><td>16 CH, chip</td><td>Sample Explorer</td><td>—</td><td>Unsigned 8-bit ROM snapshots, usage / bank / loop settings, waveform, raw PCM / ZIP and one-pass stereo preview / WAV; no wrapped ranges or live automation</td></tr>
                   <tr><th scope="row">NES APU + FDS (NTSC)</th><td>2 pulse + triangle + noise + DMC; optional FDS wavetable<br><small>Seek cache</small></td><td>5 CH + optional FDS CH6</td><td>—</td><td>Pulse / triangle / FDS base pitch; FDS modulation and timed envelopes omitted</td><td>MIDI / MusicXML / LilyPond; no MML or voice export. PAL/dual unsupported.</td></tr>
-                  <tr><th scope="row">Game Boy DMG (LR35902)</th><td>2 square + wave + noise<br><small>Seek cache</small></td><td>4 CH, chip</td><td>—</td><td>CH1/CH2 square + CH3 wave (base pitch); CH4 noise has no pitch</td><td>Base-pitch MIDI / LilyPond; no MML or FM/PCM voice export</td></tr>
+                  <tr><th scope="row">Game Boy DMG (LR35902)</th><td>2 square + wave + noise<br><small>Seek cache</small></td><td>4 CH, chip</td><td>4 CH settings / CH3 Wave RAM / Instrument (DMG 1–2)</td><td>CH1/CH2 square + CH3 wave (base pitch); CH4 noise has no pitch</td><td>Base-pitch MIDI / LilyPond; no MML or FM/PCM voice export</td></tr>
                   <tr><th scope="row">C64 SID (6581 / 8580 Preview)</th><td>PSID / RSID v2 · PAL, one SID</td><td>CH1–3 mute, Master volume and Effect</td><td>Title, author, model and subtune</td><td>—</td><td>—</td></tr>
                   <tr><th scope="row">Saturn SCSP</th><td>SSF / miniSSF or single-chip VGM / VGZ</td><td>32 slot mutes and Key On indicators, Master volume and Effect</td><td>SSF title and loaded library paths</td><td>—</td><td>Stereo WAV with CH mutes and Master</td></tr>
                   <tr><th scope="row">PlayStation SPU</th><td>PSF1 / miniPSF</td><td>24 CH mute, Master volume and Effect</td><td>Track title and path</td><td>—</td><td>Stereo WAV with CH mutes and Master</td></tr>
@@ -656,7 +671,8 @@
               <li><strong>OKIM6258:</strong> 3-bit ADPCM, recording and a second instance are not supported. YM2151 mixing is covered by synthetic tests with real cores.</li>
               <li><strong>Sega PCM:</strong> an arcade chip (OutRun, Space Harrier, System 16/18/24, ...), not a stock Genesis/Mega Drive cartridge chip. ROM bank shift/mask come from the VGM header's interface register. Mixes with Sega PSG and/or YM2151 (e.g. OutRun). A second instance is not supported.</li>
               <li><strong>WonderSwan:</strong> single-chip playback supports wavetable RAM writes and Voice PCM / sweep / noise. Note-ish and score exports infer only the written wavetable base frequency; CH2 Voice PCM, CH3 sweep and CH4 noise intervals are omitted. Waveform harmonics and RAM rewriting are not inferred. Wave RAM snapshots can be graphed, auditioned and exported as JSON / code / WAV. Timed Voice PCM captures preserve byte timing and hardware routing, split into at most 10-second windows, with JSON / WAV export. Unplayed RAM candidates are separate. Instrument editing is unavailable. Seeking replays from the beginning; no checkpoint cache. Hyper Voice / DMA and dual-chip / variant files are unsupported.</li>
-              <li><strong>Game Boy DMG:</strong> not mixed with any other chip yet. The DMG wave-RAM corruption glitch (retriggering channel 3 at an exact bad moment) is not reproduced. Note-ish/MIDI/LilyPond are write-driven approximations: length-counter timeout and channel 1 frequency sweep are time-based and not reconstructed from register writes.</li>
+              <li><strong>Dual YM2612, YM2608 and YM2610:</strong> Each chip has its own playback core, mixer strip and FM instrument list. Dual YM2612 adds a six-channel SoundChip view and individual channel mutes for each chip. Pause and seek to inspect both register states. Dual YM2608 shows FM, SSG, Rhythm and ADPCM-B registers per chip. Each of the six rhythm instruments and each Delta-T output can be muted independently. Rhythm playback uses the loaded YM2608 rhythm ROM. Dual YM2610 and YM2610B show FM, SSG, ADPCM-A and ADPCM-B per chip, with independent channel mutes. YM2610 exposes physical FM CH2, CH3, CH5 and CH6; YM2610B exposes all six.</li>
+              <li><strong>Game Boy DMG:</strong> Instrument groups pulse, wave and noise settings by APU. In SoundChip, Open voice selects the latest captured CH1, CH2 or CH4 trigger; Open wave selects the displayed 32-point CH3 waveform. Dual DMG playback has independent CH1–CH4 mutes, SoundChip and Instrument tabs, mixer strips and wave RAM per APU. Pause and seek to inspect the programmed wave at the new position. The DMG wave-RAM corruption glitch (retriggering channel 3 at an exact bad moment) is not reproduced. Note-ish/MIDI/LilyPond are write-driven approximations: length-counter timeout and channel 1 frequency sweep are time-based and not reconstructed from register writes.</li>
               <li><strong>Note-ish / MIDI / MML:</strong> estimated base pitches and key intervals; PCM/drums and all modulation are not transcribed. MML uses a sixteenth-note grid. OPN exports target MUCOM88 / OPNAvoid; YM2151 / YM2164 targets MXDRV MML or compiled FM-only MDX. MDX has no PDX; noise, partial keys, CSM, live register changes, pan and LFO are not replayed.</li>
               <li><strong>DAC streams:</strong> first-instance YM2612, Sega PSG, PWM, OKIM6258, HuC6280 and WonderSwan destinations are supported. Other destinations are warned about and omitted.</li>
               <li><strong>All / Snapshot:</strong> All collects voices across the track; Snapshot captures the current channel states. Unsupported chips and features can leave parts of a track silent; check the playback warning area.</li>
@@ -701,7 +717,7 @@
             Note-ish
           </button>
           <button id="sheetMusicTab" class="tab-button" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="sheetMusicPanel" disabled>Sheet Music</button>
-          <button id="tfiInfoTab" disabled class="tab-button" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="tfiInfoPanel">Instrument</button>
+          <button id="tfiInfoTab" disabled class="tab-button" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="instrumentPanel">Instrument</button>
           <button id="sampleExplorerTab" disabled class="tab-button" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="sampleExplorerPanel">Sample Explorer</button>
           <button id="settingTab" class="tab-button" type="button" role="tab" aria-selected="false" tabindex="-1" aria-controls="settingPanel">Setting</button>
         </div>
@@ -743,7 +759,7 @@
             <p id="romFileStatus">Use Select files… for yrw801.rom (2 MiB) or ym2608_adpcm_rom.bin.</p>
             <p>YM2608 rhythm: <a href="./js/tetorica_ym2608_adpcm_rom.bin" download>Download Tetorica synthetic ROM</a>. Sounds differ from the original. <a href="./assets/opna-rhythm/LICENSE">BSD-3-Clause license</a>.</p>
           </section>
-          <p class="file-drop-hint">Version · <span id="analyzerVersion">0.100.4</span></p>
+          <p class="file-drop-hint">Version · <span id="analyzerVersion">0.100.5</span></p>
         </section>
         <section id="exportPanel" class="tab-panel" role="tabpanel" aria-labelledby="exportTab" hidden>
           <div class="export-row">
@@ -769,15 +785,26 @@
             <button id="exportWavButton" type="button" disabled title="Render full playback audio to a 16-bit stereo WAV file">WAV</button>
           </div>
         </section>
-        <section id="opmInfoPanel" class="tab-panel" role="tabpanel" aria-labelledby="tfiInfoTab" hidden></section>
-        <section id="sbiInfoPanel" class="tab-panel" role="tabpanel" aria-labelledby="tfiInfoTab" hidden></section>
-        <section id="tfiInfoPanel" class="tab-panel" role="tabpanel" aria-labelledby="tfiInfoTab" hidden></section>
+        <section id="instrumentPanel" class="tab-panel" role="tabpanel" aria-labelledby="tfiInfoTab" hidden>
+          <div id="instrumentChipTabs" class="tabbar" role="tablist" aria-label="Instrument sound chips" hidden></div>
+          <div id="gameboyInstruments" hidden></div>
+          <section id="opmInfoPanel" role="tabpanel" aria-labelledby="tfiInfoTab" hidden></section>
+          <section id="sbiInfoPanel" role="tabpanel" aria-labelledby="tfiInfoTab" hidden></section>
+          <section id="tfiInfoPanel" role="tabpanel" aria-labelledby="tfiInfoTab" hidden></section>
+        </section>
         <section id="sampleExplorerPanel" class="tab-panel" role="tabpanel" aria-labelledby="sampleExplorerTab" hidden></section>
         <section id="spcInfoPanel" class="tab-panel" role="tabpanel" aria-labelledby="sampleExplorerTab" hidden></section>
         <section id="operatorInfoPanel" class="tab-panel" role="tabpanel" aria-labelledby="operatorInfoTab" hidden>
           <div id="chipMonitorTabs" class="tabbar" role="tablist" aria-label="Sound chips"></div>
           <div id="chipMonitorPanels"></div>
           <div id="chipMonitorStorage" hidden>
+            <section id="gameboyWaveMonitor">
+              <div id="gameboyChannels" aria-label="Game Boy channel settings"></div>
+              <h2>CH3 · Wave RAM</h2>
+              <canvas id="gameboyWaveCanvas" width="512" height="144" style="max-width:100%;height:auto" aria-label="Game Boy CH3 waveform"></canvas>
+              <p><code id="gameboyWaveValues"></code></p>
+              <small>VGM writes at the playback position. Each dot is an unwritten sample.</small>
+            </section>
             <section id="opnMonitor">
               <h2>FM Channel Monitor</h2>
               <section id="fm2612Voice" aria-label="FM voice" hidden>
@@ -797,17 +824,57 @@
                 </div>
               </section>
             </section>
+            <section id="rhythmMonitor">
+              <p class="noteish-help">The light flashes when an instrument is triggered.</p>
+              <table id="rhythmChannels" data-mute-kind="adpcm-a-channel" class="psg-channels" data-pulse="start" aria-label="YM2608 rhythm registers">
+                <thead><tr><th scope="col">Instrument</th><th scope="col">Last command</th><th scope="col">Level</th><th scope="col">Output</th></tr></thead>
+                <tbody></tbody>
+              </table>
+              <p>Total level · <span id="rhythmTotalLevel">0</span></p>
+            </section>
+            <section id="adpcmAMonitor">
+              <p class="noteish-help">The light flashes on a start command. Addresses are programmed ROM byte addresses.</p>
+              <div style="overflow-x:auto"><table id="adpcmAChannels" data-mute-kind="adpcm-a-channel" class="psg-channels" data-pulse="start" aria-label="ADPCM-A registers">
+                <thead><tr><th scope="col">Channel</th><th scope="col">Last command</th><th scope="col">Start byte</th><th scope="col">End byte (incl.)</th><th scope="col">Level</th><th scope="col">Output</th><th scope="col">Sample Explorer</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+              <p>Total level · <span id="adpcmTotalLevel">0</span></p>
+            </section>
+            <section id="adpcmBMonitor">
+              <p class="noteish-help">The light flashes on a start command. Addresses show the programmed external memory range in bytes.</p>
+              <div style="overflow-x:auto"><table id="adpcmBChannels" class="psg-channels" data-pulse="start" aria-label="ADPCM-B registers">
+                <thead><tr><th scope="col">Channel</th><th scope="col">Last command</th><th scope="col">Start byte</th><th scope="col">End byte (incl.)</th><th scope="col">Level</th><th scope="col">Output</th><th scope="col">Delta-N</th><th scope="col">Repeat</th><th scope="col">Sample Explorer</th></tr></thead>
+                <tbody></tbody>
+              </table></div>
+            </section>
             <section id="psgMonitor">
               <h2 id="psgMonitorTitle">Sega PSG</h2>
               <p class="noteish-help">Register settings at the generated audio position; playback may follow slightly later. These are not live audio levels.</p>
-              <div id="psgMonitorGrid" class="channel-grid"></div>
+              <table id="segaPsgChannels" data-mute-kind="psg-channel" class="psg-channels" hidden aria-label="Sega PSG channel settings">
+                <thead><tr><th scope="col">Channel</th><th scope="col">Period / rate</th><th scope="col">Mode</th><th scope="col">Attenuation</th></tr></thead>
+                <tbody></tbody>
+              </table>
+              <table id="ssgChannels" data-mute-kind="ssg-channel" class="psg-channels" hidden aria-label="SSG channel settings">
+                <thead><tr><th scope="col">Channel</th><th scope="col">Period</th><th scope="col">Tone</th><th scope="col">Noise</th><th scope="col">Volume</th></tr></thead>
+                <tbody></tbody>
+              </table>
+              <section id="psgMonitorGrid" class="channel-card" hidden>
+                <div class="channel-head">Shared Noise / Envelope</div>
+                <div id="ssgShared" class="channel-row"></div>
+              </section>
               <details><summary>PSG / SSG registers</summary><div id="psgMonitorRegisters" class="channel-row"></div></details>
             </section>
             <section id="pcmMonitor">
               <h2 id="pcmMonitorTitle">RF5C164 PCM</h2>
               <p id="pcmMonitorStatus" class="noteish-help">No file loaded.</p>
-              <p id="pcmMonitorHelp" class="noteish-help" hidden>Register settings at the generated audio position, not live audio levels. Channel ON is the enable setting; output also depends on Chip ON, volume, pan, sample data and PCM mute.</p>
-              <div id="pcmMonitorGrid" class="channel-grid" hidden></div>
+              <p id="pcmMonitorHelp" class="noteish-help" hidden>Register settings at the generated audio position, not live audio levels. Channel ON is the enable setting; output also depends on Chip ON, volume, pan, sample data and PCM mute. Open sample shows the RAM snapshot from the channel’s most recent start in the analyzed VGM timeline.</p>
+              <div id="pcmMonitorGrid" hidden>
+                <div style="overflow-x:auto"><table id="pcmChannels" data-mute-kind="rf5c164-channel" class="psg-channels" aria-label="RF5C164 PCM channels">
+                  <thead><tr><th scope="col">Channel</th><th scope="col">Enable</th><th scope="col">Volume</th><th scope="col">Pan L</th><th scope="col">Pan R</th><th scope="col">Step</th><th scope="col">Start</th><th scope="col">Loop</th><th scope="col">Sample Explorer</th></tr></thead>
+                  <tbody></tbody>
+                </table></div>
+                <p id="pcmShared"></p>
+              </div>
             </section>
           </div>
         </section>
@@ -1024,7 +1091,10 @@
             <label><input id="loopCheckbox" type="checkbox"> Loop</label>
             <label id="playlistLoopControl" class="playlist-loop-control" hidden title="Return to the first track after the last track finishes"><input id="playlistLoopCheckbox" type="checkbox"> Playlist loop</label>
           </div>
-          <div id="monitorToggles" class="monitor-toggles" role="group" aria-label="Playback channel and sound source toggles"></div>
+          <details id="dockChannels">
+            <summary>CH on/off</summary>
+            <div id="monitorToggles" class="monitor-toggles" role="group" aria-label="Playback channel and sound source toggles"></div>
+          </details>
         </div>
         <div id="dockOutputPane" hidden>
           <div class="transport-row" role="group" aria-label="Output display">
@@ -1053,7 +1123,19 @@
       </div>
     </section>
 
-    <script type="module" src="./vgm_analyzer.js?v=pokey-vgm-1&amp;mix=opn-channels-1"></script>
+    <script type="importmap">
+      {"imports":{
+        "./js/ym2612vgm.js?v=pokey-vgm-1":"./js/ym2612vgm.js?v=dual-psg-1",
+        "./js/vgmplayer.js?v=pokey-vgm-1":"./js/vgmplayer.js?v=dual-opn-2",
+        "./playback_mixer.js?v=console-songs-1":"./playback_mixer.js?v=dual-opn-2",
+        "./mixer_defaults.js":"./mixer_defaults.js?v=dual-psg-1",
+        "./mixer_ui.js?v=pokey-vgm-1&mix=console-songs-1":"./mixer_ui.js?v=dual-opn-2",
+        "./ym2608_source_mix.js?v=console-songs-1":"./ym2608_source_mix.js?v=dual-opn-2",
+        "./playground/playground_vgm_presets.js":"./playground/playground_vgm_presets.js?v=dual-opn-2",
+        "./playback_core.js?v=pokey-vgm-1&mix=console-songs-1":"./playback_core.js?v=dual-psg-1"
+      }}
+    </script>
+    <script type="module" src="./vgm_analyzer.js?v=pokey-vgm-1&amp;mix=dual-psg-1"></script>
   <dialog id="scoreGroupDialog"><form method="dialog">
 <h2>Channel Groups</h2><p>Combine notes for scores and the Song timeline. Playback and live physical CH monitors are unchanged. Settings last for this loaded track only.</p>
 <button type="button" data-all>Merge all channels</button> <button type="button" data-clear>Clear groups</button>

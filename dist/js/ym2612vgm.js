@@ -45,6 +45,7 @@ import {
 /**
  * @typedef {Object} Ym2612WriteEvent
  * @property {"ym2612-write"} type
+ * @property {number} [chipIndex]
  * @property {0|1} port
  * @property {number} register
  * @property {number} value
@@ -60,13 +61,14 @@ import {
 /**
  * @typedef {Object} Ym2608WriteEvent
  * @property {"ym2608-write"} type
+ * @property {number} [chipIndex]
  * @property {0|1} port
  * @property {number} register
  * @property {number} value
  */
 
 /** @typedef {{ type: "ym2413-write", register: number, value: number }} Ym2413WriteEvent */
-/** @typedef {{ type: "ym2610-write", port: 0|1, register: number, value: number }} Ym2610WriteEvent */
+/** @typedef {{ type: "ym2610-write", chipIndex?: number, port: 0|1, register: number, value: number }} Ym2610WriteEvent */
 /** @typedef {{ type: "rf5c164-write", register: number, value: number, chipIndex: number } | { type: "rf5c164-memory-write", offset: number, value: number, chipIndex: number } | { type: "rf5c164-data", offset: number, data: Uint8Array, chipIndex: number }} Rf5c164Event */
 /** @typedef {{ type: "ym2608-adpcm-b-data", data: Uint8Array, offset: number, memorySize: number, chipIndex: number }} Ym2608AdpcmBDataEvent */
 /** @typedef {{ type: "pokey-write", register: number, value: number, chipIndex: number }} PokeyWriteEvent */
@@ -74,6 +76,7 @@ import {
 /**
  * @typedef {Object} SegaPsgWriteEvent
  * @property {"psg-write"} type
+ * @property {number} [chipIndex]
  * @property {number} value
  */
 
@@ -485,11 +488,12 @@ export class Ym2612VGM {
 
     const command = this.bytes[this.position];
     switch (command) {
+      case 0x30:
       case 0x50: {
         this.#ensureAvailable(2);
         const value = this.bytes[this.position + 1];
         this.position += 2;
-        return { type: "psg-write", value };
+        return command === 0x30 ? {type:"psg-write",value,chipIndex:1} : {type:"psg-write",value};
       }
       case 0xa0: {
         this.#ensureAvailable(3);
@@ -575,6 +579,15 @@ export class Ym2612VGM {
         const value = this.bytes[this.position + 2];
         this.position += 3;
         return { type: "ym2413-write", register, value, ...(command === 0xa1 ? {chipIndex:1} : {}) };
+      }
+      case 0xa2: case 0xa3:
+      case 0xa6: case 0xa7:
+      case 0xa8: case 0xa9: {
+        this.#ensureAvailable(3);
+        const register = this.bytes[this.position + 1], value = this.bytes[this.position + 2];
+        this.position += 3;
+        const type = command < 0xa6 ? 'ym2612-write' : command < 0xa8 ? 'ym2608-write' : 'ym2610-write';
+        return {type, register, value, port:command & 1, chipIndex:1};
       }
       case 0x52: {
         this.#ensureAvailable(3);
@@ -874,6 +887,18 @@ export class Ym2612VGM {
    */
   playStep(targets) {
     const event = this.step();
+    if (event.chipIndex === 1) {
+      const chip = {'gameboy-dmg-write':'gameboyDmg','ym2612-write':'ym2612','ym2608-write':'ym2608',
+        'ym2610-write':'ym2610','ym2608-adpcm-b-data':'ym2608','ym2610-rom-data':'ym2610'}[event.type];
+      if (chip && targets.resolveChip) {
+        const target = targets.resolveChip(chip,1);
+        if (event.type === 'ym2608-adpcm-b-data') target.loadAdpcmBMemory(event.data,event.offset,event.memorySize);
+        else if (event.type === 'ym2610-rom-data') target.loadAdpcmRom(event.romType,event.data,event.offset,event.memorySize);
+        else target.writeRegister(event.register,event.value,event.port ?? 0);
+        return event;
+      }
+      if (chip && event.type.endsWith('-write') && chip !== 'gameboyDmg') throw new Error('Second ' + chip + ' requires an independent playback target');
+    }
     if (event.type === 'pokey-write') {
       const target = typeof targets.resolveChip === 'function'
         ? targets.resolveChip('pokey', event.chipIndex) : targets.pokey;
@@ -1060,7 +1085,8 @@ export class Ym2612VGM {
       }
     }
     if (event.type === "psg-write") {
-      const psg = targets.psg;
+      const psg = event.chipIndex ? targets.resolveChip?.('psg',event.chipIndex) : targets.psg;
+      if (event.chipIndex && !psg?.write) throw new Error('Second PSG requires an independent playback target');
       if (psg && typeof psg.write === "function") {
         psg.write(event.value);
       }
@@ -1373,7 +1399,7 @@ export class Ym2612VGM {
       const stream = this.#streamState(this.bytes[this.position + 1]);
       stream.chipType = this.bytes[this.position + 2];
       // POKEY and WonderSwan resolve their second instances independently.
-      stream.disabled = ![0x00, 0x02, 0x11, 0x17, 0x1b, 0x1e, 0x9e, 0x21, 0xa1].includes(stream.chipType);
+      stream.disabled = !(stream.chipType === 0x82 && (this.header.ym2612Clock & 0x40000000)) && ![0x00, 0x02, 0x11, 0x17, 0x1b, 0x1e, 0x9e, 0x21, 0xa1].includes(stream.chipType);
       stream.active = false;
       if (stream.disabled) {
         const names = {0x00:'PSG',0x01:'YM2413',0x02:'YM2612',0x03:'YM2151',0x09:'YM3812',0x0a:'YM3526',0x0b:'Y8950',0x0c:'YMF262',0x0d:'YMF278B',0x10:'RF5C164',0x11:'PWM',0x12:'AY',0x17:'OKIM6258',0x18:'OKIM6295',0x1b:'HuC6280',0x1e:'POKEY'};
@@ -1465,7 +1491,7 @@ export class Ym2612VGM {
    * @returns {void}
    */
   #startStream(stream, data, start, mode, length) {
-    if (stream.disabled || ![0x00, 0x02, 0x11, 0x17, 0x1b, 0x1e, 0x9e, 0x21, 0xa1].includes(stream.chipType)) { stream.active = false; return; }
+    if (stream.disabled || ![0x00, 0x02, 0x82, 0x11, 0x17, 0x1b, 0x1e, 0x9e, 0x21, 0xa1].includes(stream.chipType)) { stream.active = false; return; }
     if ((stream.chipType & 0x7f) === 0x11) {
       if (start === 0xffffffff) start = stream.pwmStart || 0;
       stream.pwmStart = start;
@@ -1660,8 +1686,10 @@ export class Ym2612VGM {
       if (width === 2) targets.psg.write(((stream.data[dataIndex + 1] & 3) << 4) | (value >> 4));
     } else {
       // Never route another chip's stream through YM2612.
-      if (stream.chipType !== 0x02) { stream.active = false; return; }
-      const ym2612 = targets.ym2612 || targets;
+      if ((stream.chipType & 0x7f) !== 0x02) { stream.active = false; return; }
+      const index = stream.chipType >>> 7;
+      if (index && !targets.resolveChip) throw new Error('Second YM2612 stream requires an independent playback target');
+      const ym2612 = index ? targets.resolveChip('ym2612',index) : targets.ym2612 || targets;
       if (ym2612 && typeof ym2612.writeRegister === 'function') {
         ym2612.writeRegister(stream.register, value, stream.port);
       }
@@ -2791,9 +2819,10 @@ function bitLabel(value) {
  */
 export function rawCommandLength(bytes, view, position) {
   const command = bytes[position];
-  if (command === 0x50) {
+  if (command === 0x50 || command === 0x30) {
     return 2;
   }
+  if ([0xa2,0xa3,0xa6,0xa7,0xa8,0xa9].includes(command)) return 3;
   if (command === 0xa1 || command === 0x5b || command === 0xab || command === 0x5c || command === 0xac || command === 0xa0 || command === 0x5a || command === 0x5e || command === 0x5f || command === 0x54 || command === 0x51 || command === 0x52 || command === 0x53) {
     return 3;
   }
