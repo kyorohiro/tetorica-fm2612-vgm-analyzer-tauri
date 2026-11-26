@@ -111,9 +111,11 @@ main {
 }
 .analyzer-menu nav > *, .menu-import button { text-align: left; }
 .menu-import { display: grid; gap: 4px; padding-bottom: 6px; border-bottom: 1px solid var(--line); }
-.menu-import .file-input-label, .import-rom-info { padding: 3px 6px; font-size: .8rem; }
-.import-rom-info summary { cursor: pointer; }
-.import-rom-info p { max-width: 24ch; overflow-wrap: anywhere; }
+.menu-import .file-input-label { padding: 3px 6px; font-size: .8rem; }
+#importFormatHint { flex: 0 0 100%; margin: 0; overflow-wrap: anywhere; }
+.import-rom-info { margin: 16px 0; font-size: .85rem; overflow-wrap: anywhere; }
+.import-rom-info h2 { margin: 0 0 6px; font-size: 1rem; }
+.import-rom-info p { margin: 4px 0; }
 .actions, .sub-actions { align-items: center; gap: 10px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; box-shadow: inset 0 0 0 2px #fffaf3; background: #fffaf340; }
 #playlistPanel { margin-block: 0; align-content: flex-start; }
 .playlist, .queue-settings {
@@ -311,3 +313,25 @@ pre { border: 1px solid var(--line); border-radius: 7px; background: #fffaf1; co
   border-radius: 50%;
 }
 .channel-toggle[data-scsp-slot].is-key-on::before { background: currentColor; }
+
+#fm2612Voice { margin-bottom: 16px; }
+#fm2612Voice p { margin: 8px 0; }
+.fm-channels button[aria-pressed="true"] { background: var(--red-enamel); color: white; }
+.fm-channel-detail canvas { display: block; width: 100%; height: 128px; background: #241d19; }
+.fm-operator-values { overflow-x: auto; margin-block: 8px; }
+.fm-operator-values table { border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; }
+.fm-operator-values :is(th, td) { padding: 3px 8px; border-bottom: 1px solid var(--line); text-align: right; }
+.fm-operator-values tbody th::before { content: ""; display: inline-block; width: .65em; height: .65em; margin-right: 4px; border: 1px solid #786957; border-radius: 50%; }
+.fm-operator-values tbody tr:nth-child(1) th::before { background: #f2c078; }
+.fm-operator-values tbody tr:nth-child(2) th::before { background: #ff93bc; }
+.fm-operator-values tbody tr:nth-child(3) th::before { background: #9dff9b; }
+.fm-operator-values tbody tr:nth-child(4) th::before { background: #89b7ff; }
+
+.fm-voice-layout { display: grid; grid-template-columns: max-content minmax(0, 1fr); align-items: start; gap: 12px; }
+.fm-channels { display: grid; gap: 4px; }
+.fm-channels button { min-height: 32px; padding: 4px 8px; }
+.fm-channels button::before { content: ""; display: inline-block; width: .6rem; height: .6rem; margin-right: 5px; border: 1px solid #897d73; border-radius: 50%; background: #ddd4ca; transition: background-color .25s; }
+.fm-channels button.is-key-on::before { background: #7ddd86; border-color: #306a3d; }
+.fm-channels button.is-key-on::before { transition-duration: 0s; }
+#fm2612Voice [hidden] { display: none; }
+.fm-channel-detail { min-width: 0; }
