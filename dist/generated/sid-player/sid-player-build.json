@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "component": "sid-player",
+  "fixedSdkArtifact": false,
+  "model": "6581",
+  "clockHz": 985248,
+  "frameCycles": 19656,
+  "initCycleLimit": 100000,
+  "playCycleLimit": 16000,
+  "initialPalFlag": 1,
+  "entryBank": "every-call: below A000=37; A000..CFFF=36",
+  "diagnostics": {
+    "timeoutCode": 5,
+    "timeoutPhase": "initialization-or-play",
+    "cpuJamCode": 10
+  },
+  "indexedSidStores": {
+    "opcodes": [
+      157,
+      153,
+      145
+    ],
+    "discardedVicRead": "exact-m6502-phase-D300..D3FF-before-SID-write-only",
+    "excludedVicMirrorRegisters": [
+      30,
+      31
+    ],
+    "dummyData": 255
+  },
+  "cpu": "chips/m6502",
+  "environment": "bounded-psid-init-play-no-rom-cia-vic-irq",
+  "upstream": {
+    "revision": "9e88298ce56319953ac7a43213a1120359f7a3a6",
+    "cpuHeaderSha256": "b3fc32a01f1f7cdc62f919ccba06cc20c2a333e7ca30c38189e31aa65868d46e",
+    "sidHeaderSha256": "a793225ee69b91e0ea8c91b221d06ee024e45e6c8179176980abfa95d5a54cdf",
+    "licenseSha256": "0c692ece632a8ec6d2a566c9234fdabda655644e6abc70027da9ff7c35e48634"
+  },
+  "inputs": {
+    "LICENSE": {
+      "bytes": 1519,
+      "sha256": "2d2e9213c170a9866c616fa85b6da993a6724e10befc61f468ed9bfb84c4691c"
+    },
+    "third_party/chips-m6502/LICENSE": {
+      "bytes": 893,
+      "sha256": "0c692ece632a8ec6d2a566c9234fdabda655644e6abc70027da9ff7c35e48634"
+    },
+    "third_party/chips-m6502/README.md": {
+      "bytes": 5077,
+      "sha256": "500ec456790a8c1a1a2236cc08ed576c86af4c59a90dcd09c70d2ea9f627d59c"
+    },
+    "third_party/chips-m6502/upstream/m6502.h": {
+      "bytes": 144215,
+      "sha256": "b3fc32a01f1f7cdc62f919ccba06cc20c2a333e7ca30c38189e31aa65868d46e"
+    },
+    "third_party/chips-m6581/LICENSE": {
+      "bytes": 893,
+      "sha256": "0c692ece632a8ec6d2a566c9234fdabda655644e6abc70027da9ff7c35e48634"
+    },
+    "third_party/chips-m6581/README.md": {
+      "bytes": 3222,
+      "sha256": "509acf62b8f6393f1625f5d5efc3e3f0937bd223cc782e0968f9dbb1cc99af57"
+    },
+    "third_party/chips-m6581/PATCHES.md": {
+      "bytes": 4144,
+      "sha256": "f1984c366a00284a909cc3a774dd2bebbaee9deb7bbe11a06ff964bebbb0ed31"
+    },
+    "third_party/chips-m6581/upstream/m6581.h": {
+      "bytes": 26332,
+      "sha256": "a793225ee69b91e0ea8c91b221d06ee024e45e6c8179176980abfa95d5a54cdf"
+    },
+    "third_party/chips-m6581/m6581.h": {
+      "bytes": 27353,
+      "sha256": "a13132ce5083e707611ac65e6e37c799a19ce18a8df4dcbb9e60292cb9520aa8"
+    },
+    "tetorica_src/wasm/sid_player_core.h": {
+      "bytes": 14144,
+      "sha256": "15ada75bd756be087eb633f1a350a4cabcc0a8b0756e4f543c46128d9106e78f"
+    },
+    "tetorica_src/wasm/sid_player_wasm.cpp": {
+      "bytes": 2500,
+      "sha256": "f586d3d03853d3cb1bdf8d69869fdeb89ced175d9899bee3916d76f059eb186e"
+    },
+    "scripts/build_sid_player_wasm.sh": {
+      "bytes": 721,
+      "sha256": "200b717b5eb8f7580ccbb26d6ea4932649600f4ad39f0d703481cb5df3628ddc"
+    },
+    "scripts/sid_player_artifacts.mjs": {
+      "bytes": 6146,
+      "sha256": "c1ca5f704d8fad3bbd0612085ee0753c4ec58cd9ad904132898ddd9a35f3b155"
+    },
+    "scripts/prepare_sid_core.py": {
+      "bytes": 4121,
+      "sha256": "d488927cdf6bb9b3a0c75513b0bd2ac2a51b7d588a868a53800575144b01bfa8"
+    }
+  },
+  "output": {
+    "bytes": 74221,
+    "sha256": "59ce178613fe86153f8a44d033b692c0cd0e8e4aeb932fadbb20f811fee29184"
+  }
+}

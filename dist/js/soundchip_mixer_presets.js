@@ -9,6 +9,7 @@ const freeze = value => {
 };
 
 export const SOUNDCHIP_MIXER_LISTENING_LEVELS = freeze({
+  "dx7": 2.2,
   "segapsg": 0.35,
   "ay8910": 0.85,
   "nes": 1.16,
@@ -19,7 +20,7 @@ export const SOUNDCHIP_MIXER_LISTENING_LEVELS = freeze({
 /** Optional factory policies for new SoundChipMixer().
  * calibrated covers measured standalone-chip routes; other kinds retain their usual defaults.
  * Explicit common and per-ID settings override these fallback values.
- * @type {{readonly calibrated: import('./soundchip_mixer.js?v=y8950-adpcm-ui-1').SoundChipMixerOptions}}
+ * @type {{readonly calibrated: import('./soundchip_mixer.js').SoundChipMixerOptions}}
  */
 export const SOUNDCHIP_MIXER_PRESETS = freeze({
   "calibrated": {
@@ -33,7 +34,7 @@ export const SOUNDCHIP_MIXER_PRESETS = freeze({
         },
         {
           "name": "dx7",
-          "volume": 1.038825
+          "volume": 2.2
         },
         {
           "name": "gameboy",
@@ -125,11 +126,11 @@ export const SOUNDCHIP_MIXER_PRESETS = freeze({
         },
         {
           "name": "pokey",
-          "volume": 0.413034
+          "volume": 0.41305
         },
         {
           "name": "scsp",
-          "volume": 0.128825
+          "volume": 0.128826
         }
       ]
     },

@@ -91,6 +91,11 @@ async function loadModule(name, options = {}) {
 
 const loaders = {
   /** @param {SoundChipOptions} [options] */
+  fm21290: async (options = {}) => {
+    const {Fm21290} = await import('./fm21290.js');
+    return new Fm21290(options.sampleRate);
+  },
+  /** @param {SoundChipOptions} [options] */
   sid: async options => {
     const {createSidSoundChip} = await import('./sid_soundchip.js?v=audio-stability-2');
     return createSidSoundChip(options);
@@ -206,6 +211,8 @@ const loaders = {
  */
 const createLocalSoundChip = createSoundChipFactory(loaders);
 /** @typedef {{
+ *   dx7: import('./fm21290.js').Fm21290,
+ *   fm21290: import('./fm21290.js').Fm21290,
  *   sid: import('./sid.js').SidCore|import('./sid8580.js').Sid8580Core,
  *   pokey: import('./pokey.js?v=pokey-mode-1').Pokey,
  *   wonderswan: import('./wonderswan.js?v=wonderswan-pcm-timeline-1').WonderSwan,
@@ -229,7 +236,7 @@ const createLocalSoundChip = createSoundChipFactory(loaders);
  *   ymf278b: import('./ymf278b.js?v=audio-stability-2').Ymf278b,
  *   ymf288: import('./ymf288.js').Ymf288,
  * }} SoundChipMap */
-/** @typedef {'ym2612'|'ym2608'|'ym2151'|'gameboy'|'segapsg'|'pwm'|'nes'|'ym3526'|'ym3812'|'y8950'|'ymf262'|'ym2413'|'ay8910'|'wonderswan'|'pokey'|'sid'} WorkletChipName */
+/** @typedef {'ym2612'|'ym2608'|'ym2151'|'gameboy'|'segapsg'|'pwm'|'nes'|'ym3526'|'ym3812'|'y8950'|'ymf262'|'ym2413'|'ay8910'|'wonderswan'|'pokey'|'sid'|'fm21290'|'dx7'} WorkletChipName */
 /**
  * @template {WorkletChipName} Name
  * @overload
@@ -253,6 +260,7 @@ const createLocalSoundChip = createSoundChipFactory(loaders);
  */
 /** @param {keyof SoundChipMap} name @param {SoundChipOptions} [options] */
 export function createSoundChip(name, options = {}) {
+  if (name === 'dx7') name = 'fm21290';
   if (options.mixer && options.execution !== 'worklet') return Promise.reject(new Error('An output mixer requires execution: worklet; direct chips generate raw PCM'));
   if (name === 'sid' && options.execution === 'worklet') {
     return import('./sid_soundchip.js?v=audio-stability-2').then(({validateSidSoundChipOptions, loadSidSoundChipBinary}) => {
@@ -266,7 +274,7 @@ export function createSoundChip(name, options = {}) {
     if (options.moduleFactory) return Promise.reject(new Error('Worklet execution uses the packaged chip factory'));
     const moduleName = name === 'gameboy' ? 'gameboy_apu' : name==='nes'?'nesapu':name==='pwm'?'pwm32x':name;
     return createWorkletSoundChip(name, options, async () => {
-      if (name === 'pwm' && options.implementation === 'js') return undefined;
+      if (name === 'fm21290' || (name === 'pwm' && options.implementation === 'js')) return undefined;
       const loaded = await loadModule(moduleName, options);
       const bytes = loaded.moduleOptions.wasmBinary;
       if (!bytes) throw new Error('Worklet execution requires WASM bytes; use wasmBinary or default asset loading');

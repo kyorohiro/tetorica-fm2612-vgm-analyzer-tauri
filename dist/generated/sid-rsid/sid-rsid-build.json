@@ -1,0 +1,191 @@
+{
+  "schemaVersion": 1,
+  "component": "sid-rsid",
+  "fixedSdkArtifact": false,
+  "clockHz": 985248,
+  "model": "6581",
+  "hardware": "pinned chips/c64 (CPU, two CIAs, VIC, SID)",
+  "environment": "continuous-machine-minimal-original-shim-or-user-roms",
+  "initPolicy": "100000-cycle preflight; RSID nonreturning init allowed; PSID CIA must return; PSID VBI streams pending init up to 2000000 cycles",
+  "bootCycleLimit": 2000000,
+  "psidCiaDriver": {
+    "timerADefaultLatch": 16421,
+    "initCycleLimit": 100000,
+    "playCycleLimit": 16000,
+    "timing": "machine-CIA1-Timer-A-IRQ",
+    "acknowledgement": "read-ICR-after-play",
+    "ramBootstrap": 1024,
+    "ramIrqDriver": 1536,
+    "ramInitCaller": 1792,
+    "explicitRelocation": {
+      "pageBytes": 256,
+      "safePageRanges": [
+        [
+          4,
+          159
+        ],
+        [
+          192,
+          207
+        ]
+      ],
+      "offsets": {
+        "irq": 0,
+        "nmi": 40,
+        "caller": 64,
+        "bootstrap": 96
+      },
+      "payloadRelocated": false
+    },
+    "preserves": "A/X/Y/bank; tune timer latch/control/mask retained after init"
+  },
+  "psidVbiDriver": {
+    "preflightCycles": 100000,
+    "initCycleLimit": 2000000,
+    "streamPendingInit": true,
+    "retainedQueueFrames": 16384,
+    "playCycleLimit": 16000,
+    "timing": "machine-VIC-raster-IRQ",
+    "rasterLine": 0,
+    "frameCycles": 19656,
+    "ciaTimerADefaultLatch": 16421,
+    "ciaTimerARunning": true,
+    "ciaTimerAIrqEnabled": false,
+    "acknowledgement": "VIC-raster-write-one-to-clear-01-then-CIA-ICR-after-play",
+    "packedIrqBytes": 40,
+    "unsupportedMappedIo": [
+      "DE00..DFFF"
+    ],
+    "initCycleOrigin": "PSID bootstrap start after optional firmware boot"
+  },
+  "upstreamRevision": "9e88298ce56319953ac7a43213a1120359f7a3a6",
+  "pristineSourcesSha256": "00489de8a017b799c96c28395c113f2048c7f48c0cfb7ebb4c269993db63ddc8",
+  "build": {
+    "machineLanguage": "C11",
+    "sidAndHostLanguage": "C++17",
+    "optimization": "-O2",
+    "floatingPointContraction": false
+  },
+  "inputs": {
+    "LICENSE": {
+      "bytes": 1519,
+      "sha256": "2d2e9213c170a9866c616fa85b6da993a6724e10befc61f468ed9bfb84c4691c"
+    },
+    "third_party/chips-c64/LICENSE": {
+      "bytes": 893,
+      "sha256": "0c692ece632a8ec6d2a566c9234fdabda655644e6abc70027da9ff7c35e48634"
+    },
+    "third_party/chips-c64/README.md": {
+      "bytes": 9970,
+      "sha256": "c07fa8929cce27aef62dd564443c6a151320a328345ee5575202dc3ebc0de8aa"
+    },
+    "third_party/chips-c64/SOURCES.json": {
+      "bytes": 1619,
+      "sha256": "00489de8a017b799c96c28395c113f2048c7f48c0cfb7ebb4c269993db63ddc8"
+    },
+    "third_party/chips-c64/upstream/chips/chips_common.h": {
+      "bytes": 3477,
+      "sha256": "f5992674dc6ddecd88a19b146d2259ba1142e4d2fce9b0620b14c7783965bb7b"
+    },
+    "third_party/chips-c64/upstream/chips/clk.h": {
+      "bytes": 2037,
+      "sha256": "17b8791dbfcbe9d17203ea0b481f7674a8a3558cf4546c3196b6fb6e2736dcd1"
+    },
+    "third_party/chips-c64/upstream/chips/kbd.h": {
+      "bytes": 15708,
+      "sha256": "18f16af06fa483eebb1a7f6fdcac6299ef6b025198f8623e5b1a2de00218c364"
+    },
+    "third_party/chips-c64/upstream/chips/m6522.h": {
+      "bytes": 28897,
+      "sha256": "85ae4f49779b7e909a41fd979a6eb6afb5738e4a0c24ce1c76a8f4b376f218bd"
+    },
+    "third_party/chips-c64/upstream/chips/m6526.h": {
+      "bytes": 26154,
+      "sha256": "327a362b9b2235af55c0af712c527bce068633c98f76cdc0c8c4bb35e1d47393"
+    },
+    "third_party/chips-c64/upstream/chips/m6569.h": {
+      "bytes": 66024,
+      "sha256": "8ba7e2296e34eb486b8cd9f3488814ab1af22c418b2e06a7716e01cbed820d29"
+    },
+    "third_party/chips-c64/upstream/chips/mem.h": {
+      "bytes": 16608,
+      "sha256": "451a9c9c0545bfe724a164f655df2f255e4741bba1d7e0e7e980af865e9fbb49"
+    },
+    "third_party/chips-c64/upstream/systems/c1530.h": {
+      "bytes": 8475,
+      "sha256": "fe90f38b06b3b9388ee39c1bb92db02ad120ffe81e528c1e6f97449484d83fbc"
+    },
+    "third_party/chips-c64/upstream/systems/c1541.h": {
+      "bytes": 5364,
+      "sha256": "597511b00e9ee8d8c32b529b47eab26a8dbf675d42d314c0235ec9f040ac9890"
+    },
+    "third_party/chips-c64/upstream/systems/c64.h": {
+      "bytes": 41974,
+      "sha256": "a0e30d76798bbe2463e99814ddcd890640d0d808e904cf9b47f8294462543a6c"
+    },
+    "third_party/chips-m6502/LICENSE": {
+      "bytes": 893,
+      "sha256": "0c692ece632a8ec6d2a566c9234fdabda655644e6abc70027da9ff7c35e48634"
+    },
+    "third_party/chips-m6502/README.md": {
+      "bytes": 5077,
+      "sha256": "500ec456790a8c1a1a2236cc08ed576c86af4c59a90dcd09c70d2ea9f627d59c"
+    },
+    "third_party/chips-m6502/upstream/m6502.h": {
+      "bytes": 144215,
+      "sha256": "b3fc32a01f1f7cdc62f919ccba06cc20c2a333e7ca30c38189e31aa65868d46e"
+    },
+    "third_party/chips-m6581/LICENSE": {
+      "bytes": 893,
+      "sha256": "0c692ece632a8ec6d2a566c9234fdabda655644e6abc70027da9ff7c35e48634"
+    },
+    "third_party/chips-m6581/README.md": {
+      "bytes": 3222,
+      "sha256": "509acf62b8f6393f1625f5d5efc3e3f0937bd223cc782e0968f9dbb1cc99af57"
+    },
+    "third_party/chips-m6581/PATCHES.md": {
+      "bytes": 4144,
+      "sha256": "f1984c366a00284a909cc3a774dd2bebbaee9deb7bbe11a06ff964bebbb0ed31"
+    },
+    "third_party/chips-m6581/upstream/m6581.h": {
+      "bytes": 26332,
+      "sha256": "a793225ee69b91e0ea8c91b221d06ee024e45e6c8179176980abfa95d5a54cdf"
+    },
+    "third_party/chips-m6581/m6581.h": {
+      "bytes": 27353,
+      "sha256": "a13132ce5083e707611ac65e6e37c799a19ce18a8df4dcbb9e60292cb9520aa8"
+    },
+    "tetorica_src/wasm/sid_rsid_core.h": {
+      "bytes": 25888,
+      "sha256": "6fd229aedccfa0842d794d4ea2c79a1a045ffaea7dae4f013b2de7b03bde6d37"
+    },
+    "tetorica_src/wasm/sid_rsid_wasm.cpp": {
+      "bytes": 3977,
+      "sha256": "b01a2989e77ed1ecfd1ca3cda4093eb87d7d3fe166d344614330f027b3365d72"
+    },
+    "tetorica_src/wasm/sid_rsid_machine.c": {
+      "bytes": 1050,
+      "sha256": "6f6d92e687b81ecf0b314335d9532da4a7d1b2ebd4289c5a4412aca2071be5d8"
+    },
+    "tetorica_src/wasm/sid_rsid_chip.cpp": {
+      "bytes": 428,
+      "sha256": "982291bc3191f1be4d1a31c030cbfe6a11bf7fcf5410e575b1c5231d1009fa12"
+    },
+    "scripts/build_sid_rsid_wasm.sh": {
+      "bytes": 1020,
+      "sha256": "16fabf25f3602fa823ae6545b4d5a223327910a6d19457ca30c6f29daa6836cf"
+    },
+    "scripts/sid_rsid_artifacts.mjs": {
+      "bytes": 7593,
+      "sha256": "83aab4cfc0ccda73bac874b488128b071ec23c259bb9888d1c106193538b89ee"
+    },
+    "scripts/prepare_sid_core.py": {
+      "bytes": 4121,
+      "sha256": "d488927cdf6bb9b3a0c75513b0bd2ac2a51b7d588a868a53800575144b01bfa8"
+    }
+  },
+  "output": {
+    "bytes": 116499,
+    "sha256": "a60c5d13fe26337fd9b48813c595c24405b91f6fa954154c89bf63af5192ea2c"
+  }
+}
