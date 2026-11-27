@@ -15,6 +15,7 @@ export class Oki6295AudioEngine {
     this.rate=outputSampleRate;
     this.rom=new Uint8Array();
     this.muted=false;
+    this.voiceMutes = Array(4).fill(false);
     this.setMasterVolume(masterVolume);
     this.reset();
   }
@@ -24,6 +25,15 @@ export class Oki6295AudioEngine {
   getMasterVolume(){return this.volume;}
   /** @param {boolean} v */
   setOki6295Muted(v){this.muted=Boolean(v);}
+  setVoiceMuted(voice, muted) {
+    if (!Number.isInteger(voice) || voice < 0 || voice >= 4) throw new RangeError('Invalid OKIM6295 voice');
+    this.voiceMutes[voice] = Boolean(muted);
+  }
+  sampleRange(sample) {
+    if (!Number.isInteger(sample) || sample < 0 || sample > 127) throw new RangeError('Invalid OKIM6295 sample');
+    const address = offset => ((this.readRom(offset)<<16) | (this.readRom(offset+1)<<8) | this.readRom(offset+2)) & 0x3ffff;
+    return {start:address(sample*8), stop:address(sample*8+3)};
+  }
   supportsState(){return false;}
   reset(){
     this.clock=this.initialClock & 0x3fffffff;
@@ -44,7 +54,7 @@ export class Oki6295AudioEngine {
   }
   clearOki6295Rom(){this.rom=new Uint8Array();}
   /** @param {number} address */
-  readRom(address){
+  romOffset(address){
     address &= 0x3ffff;
     let offset;
     if(!this.nmkMode)offset=this.bank|address;
@@ -53,7 +63,10 @@ export class Oki6295AudioEngine {
       const bankId=table ? address>>>8 : address>>>16;
       offset=(this.nmkBanks[bankId&3]<<16)|(address&(table?0x3ff:0xffff));
     }
-    return this.rom[offset] ?? 0;
+    return offset;
+  }
+  readRom(address){
+    return this.rom[this.romOffset(address)] ?? 0;
   }
   readStatus(){return this.voices.reduce((n,v,i)=>n|(v.playing?1<<i:0),0xf0);}
    /** @param {number} register  @param {number} value */
@@ -75,17 +88,23 @@ export class Oki6295AudioEngine {
   }
   command(value){
     if(this.pending>=0){
-      const base=this.pending*8;
-      const start=((this.readRom(base)<<16)|(this.readRom(base+1)<<8)|this.readRom(base+2))&0x3ffff;
-      const stop=((this.readRom(base+3)<<16)|(this.readRom(base+4)<<8)|this.readRom(base+5))&0x3ffff;
+      const {start,stop}=this.sampleRange(this.pending);
       this.voices.forEach((v,i)=>{
-        if((value&(0x10<<i)) && !v.playing && start<stop){
-          Object.assign(v,{playing:true,start,count:2*(stop-start+1),cursor:0,signal:0,step:0,output:0,volume:VOLUME[value&15]});
+        if (!(value & (0x10<<i))) return;
+        v.requestedSample=this.pending;
+        v.requestedAttenuation=value&15;
+        if (!v.playing && start<stop) {
+          v.sample=this.pending;
+          this.startVoice(i,start,stop,value&15);
         }
       });
       this.pending=-1;
     } else if(value&0x80)this.pending=value&127;
     else this.voices.forEach((v,i)=>{if(value&(8<<i)){v.playing=false;v.output=0;}});
+  }
+  startVoice(index,start,stop,attenuation) {
+    Object.assign(this.voices[index],{playing:true,start,count:2*(stop-start+1),cursor:0,
+      signal:0,step:0,output:0,attenuation,volume:VOLUME[attenuation]});
   }
   tick(){
     for(const v of this.voices){
@@ -108,7 +127,7 @@ export class Oki6295AudioEngine {
     for(let i=0;i<frames;i++){
       this.phase+=increment;
       while(this.phase>=1){this.tick();this.phase-=1;}
-      const value=this.muted?0:this.voices.reduce((n,v)=>n+v.output,0)*this.volume;
+      const value=this.muted?0:this.voices.reduce((n,v,index)=>this.voiceMutes[index]?n:n+v.output,0)*this.volume;
       left[i]=right[i]=value;
     }
     return {left,right};
